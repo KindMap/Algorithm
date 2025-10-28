@@ -1,56 +1,69 @@
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
-from typing import List, Dict, Any
+from typing import List, Dict, Optional
+from contextlib import contextmanager
+import logging
 from config import DB_CONFIG
 import time
 
+logger = logging.getLogger(__name__)
 
-class DatabaseConnection:
-    def __init__(self):
-        self.connection = None
-        self.cursor = None
+# 모듈 레벨에서 한 번만 생성 -> 싱글톤 패턴 사용 안함
+_connection_pool = None
 
-    def connect(self, max_retries=3):
-        for attempt in range(max_retries):
-            try:
-                self.connection = psycopg2.connect(**DB_CONFIG)
-                self.cursor = self.connection.cursor(cursor_factory=RealDictCursor)
-                print(f"RDS connected")
-                return
-            except psycopg2.OperationalError as e:
-                if attempt < max_retries - 1:
-                    time.sleep(10)  # 개발 환경: 10초 정도 넉넉하게 설정
-                    continue
-                raise e
 
-    def close(self):
-        if self.cursor:
-            self.cursor.close()
-        if self.connection:
-            self.connection.close()
+def initialize_pool():
+    """application 시작 시 한 번만 호출"""
+    global _connection_pool
+    if _connection_pool is None:
+        _connection_pool = pool.ThreadedConnectionPool(
+            minconn=10, maxconn=50, **DB_CONFIG  # RDS db.t3.micro: 최대 연결 87개
+        )
+        logger.info("RDS Database connection pool 초기화")
 
-    def get_all_stations(self) -> List[Dict]:
-        """모든 역 정보 조회"""
-        query = """
-        SELECT station_id, line, name, lat, lng, station_cd
-        FROM subway_station
-        """
-        self.cursor.execute(query)
-        return self.cursor.fetchall()
 
-    def get_all_sections(self) -> List[Dict]:
-        """모든 구간 정보 조회"""
-        query = """
-        SELECT section_id, line, up_stream_name, down_station_name,
-                section_order, via_coordinamtes
-        FROM subway_section
-        """
-        self.cursor.execute(query)
-        return self.cursor.fetchall()
+def close_pool():
+    """application 종료 시 호출"""
+    global _connection_pool
+    if _connection_pool:
+        _connection_pool.closeall()
+        logger.info("RDS Database connection pool 종료")
 
-    def get_all_transfer_station_conveniences(self) -> List[Dict]:
-        """모든 환승역 편의성 점수 조회"""
-        query = """
-        SELECT * FROM transfer_station_convenience
-        """
-        self.cursor.execute(query)
+
+@contextmanager
+def get_db_connection():
+    """connection 가져오기"""
+    if _connection_pool is None:
+        raise RuntimeError(
+            "Connection pool이 초기화되지 않았습니다. 초기화 함수를 먼저 호출하시오."
+        )
+
+    connection = None
+    try:
+        connection = _connection_pool.getconn()
+        yield connection
+    except psycopg2.Error as e:
+        logger.error(f"Database error: {e}")
+        if connection:
+            connection.rollback()
+        raise
+    finally:
+        if connection:
+            _connection_pool.putconn(connection)
+
+
+@contextmanager
+def get_db_cursor(cursor_factory=RealDictCursor):
+    """Cursor 가져오기"""
+    with get_db_connection as connection:
+        cursor = connection.cursor(cursor_factory=cursor_factory)
+        try:
+            yield cursor
+            connection.commit()
+        except Exception as e:
+            connection.rollback()
+            logger.error(f"Transaction rolled back: {e}")
+            raise
+        finally:
+            cursor.close()
