@@ -164,37 +164,42 @@ class McRAPTOR:
         # round별 탐색
         for round_num in range(max_rounds):
             updated = False
-            
+
             for station_name, station_labels in list(labels.items()):
                 if station_name not in self.graph:
                     continue
-                
+
                 for label in station_labels:
                     # 현재 역에서 탈 수 있는 노선 전부 확인
                     current_line = label.lines[-1] if label.lines else None
-                    
+
                     # 같은 노선을 따라 갈 수 있는 모든 역 찾기
                     reachable_stations = self._get_stations_on_line(
                         station_name, current_line
                     )
-                    
+
                     for next_station in reachable_stations:
                         new_label = self._create_new_label(
                             label, station_name, next_station,current_line,disability_type
                         )
-                        
+
                         if self._is_pareto_optimal(new_label, labels[next_station]):
-                            labels[next_station].append(new_label)
+                            # 기존 경로 중 new_label에 지배당하는 것을 제거함
                             updated=True
                             labels[next_station] = [
                                 l for l in labels[next_station]
-                                if not new_label.dominates()
+                                if not new_label.dominates(l)
                             ]
+                            # new_label 추가
+                            labels[next_station].append(new_label)
+                    
+                    # 환승 로직 추가하기
+                        
             if not updated:
                 break
-            
+
         return labels.get(destination, [])
-    
+
     def _get_stations_on_line(self, start_station: str, line: str) -> List[str]:
         """
         같은 노선을 타고 갈 수 있는 모든 역 반환
@@ -209,22 +214,22 @@ class McRAPTOR:
         reachable = []
         visited = {start_station}
         queue = [start_station]
-        
+
         while queue:
             current = queue.pop(0)
-            
+
             if current not in self.graph:
                 continue
             for neighbor in self.graph[current]:
                 next_station = neighbor["to"]
                 neighbor_line = neighbor["line"]
-                
+
                 # 같은 노선이고 아직 방문하지 않은 역
                 if neighbor_line == line and next_station not in visited:
                     reachable.append(next_station)
                     visited.add(next_station)
                     queue.append(next_station)
-        
+
         return reachable
 
     def rank_routes(
