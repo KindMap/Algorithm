@@ -20,6 +20,9 @@ class Label:
     lines: List[str] = field(default_factory=list)
     # 지나가는 역들의 line 정보를 담는 list -> 환승 여부 및 횟수 파악
     # 경로는 지나가야 하는 지하철역의 list형태
+    created_round: int = 0
+    # 해당 라벨이 생성된 라운드 저장
+    # 라벨은 생성된 라운드의 다음 라운드에서 처리되어야 함
 
     def dominates(self, other: "Label") -> bool:
         """파레토 우위 판단"""
@@ -115,91 +118,133 @@ class McRAPTOR:
         return graph
 
     def find_routes(
-        self,
-        origin: str,
-        destination: str,
-        departure_time: float,
-        disability_type: str,
-        max_rounds: int = 4,
-    ) -> List[Label]:
-        """
-        Mc-RAPTOR 알고리즘으로 파레토 최적 경로 탐색
+            self,
+            origin: str,
+            destination: str,
+            departure_time: float,
+            disability_type: str,
+            max_rounds: int = 5, # 성능 모니터링하면서 값 변경하기
+        ) -> List[Label]:
+            """
+            Mc-RAPTOR 알고리즘으로 파레토 최적 경로 탐색
 
-        Args:
-            origin (str): 출발역(name)
-            destination (str): 도착역
-            departure_time (float): 출발 시각
-            disability_type (str): user 유형(PHY/VIS/AUD/ELD)
-            max_rounds (int, optional): 최대 환승 횟수(default=4)
+            Args:
+                origin (str): 출발역(name)
+                destination (str): 도착역
+                departure_time (float): 출발 시각
+                disability_type (str): user 유형(PHY/VIS/AUD/ELD)
+                max_rounds (int, optional): 최대 환승 횟수(default=4)
 
-        Returns:
-            List[Label]: 파레토 최적해(경로 리스트)
-        """
-        # 파레토 프론티어
-        labels = defaultdict(list)
+            Returns:
+                List[Label]: 파레토 최적해(경로 리스트)
+            """
+            # 파레토 프론티어
+            labels = defaultdict(list)
 
-        # 출발역의 노선 찾기 -> 프론티어 초기화에 사용
-        line_num = None
-        for station in self.stations.values():
-            if station["name"] == origin:
-                line_num = station["line"]
-                break
+            # 출발역의 노선 찾기 -> 프론티어 초기화에 사용
+            line_num = None
+            for station in self.stations.values():
+                if station["name"] == origin:
+                    line_num = station["line"]
+                    break
 
-        # 출발역 노선이 없을 경우
-        if line_num is None:
-            raise ValueError(f"출발역 '{origin}'을 찾을 수 없습니다.")
+            # 출발역 노선이 없을 경우
+            if line_num is None:
+                raise ValueError(f"출발역 '{origin}'을 찾을 수 없습니다.")
 
-        # 파레토 프론티어 초기화
-        labels[origin].append(
-            Label(
-                arrival_time=departure_time,
-                transfers=0,
-                walking_distance=0,
-                convenience_score=5.0,
-                route=[origin],
-                lines=[line_num],  # 출발역의 노선 번호로 초기화
+            # 파레토 프론티어 초기화
+            labels[origin].append(
+                Label(
+                    arrival_time=departure_time,
+                    transfers=0,
+                    walking_distance=0,
+                    convenience_score=5.0,
+                    route=[origin],
+                    lines=[line_num],  # 출발역의 노선 번호로 초기화
+                    created_round=0,
+                )
             )
-        )
 
-        # round별 탐색
-        for round_num in range(max_rounds):
-            updated = False
+            # round별 탐색
+            for round_num in range(max_rounds):
+                logger.info(f"=== Round {round_num} 시작 ===")
+                updated = False
 
-            for station_name, station_labels in list(labels.items()):
-                if station_name not in self.graph:
-                    continue
+                # 해당 라운드에서 처리해야 할 라벨만 확장
+                for station_name, station_labels in list(labels.items()):
+                    # 그래프에 해당 역이 없으면 skip
+                    if station_name not in self.graph:
+                        continue
+                    
+                    # logger.info(f"Station: {station_name}, Labels: {len(station_labels)}")
 
-                for label in station_labels:
-                    current_line = label.lines[-1] if label.lines else None
+                    for label in station_labels:
+                        # logger.info(
+                        #     f"  Label created_round: {label.created_round}, current_round: {round_num}"
+                        # )
 
-                    # 현재 역에서 이용 가능한 모든 노선 찾기
-                    available_lines = set(
-                        neighbor["line"] for neighbor in self.graph[station_name]
-                    )
+                        # Round 0: 출발역 초기화 - 모든 라벨 처리
+                        # Round 1+: 이전 round에서 생성된 라벨만 처리
+                        if round_num == 0:
+                            # Round 0에서는 출발역 라벨만 처리
+                            if label.created_round != 0:
+                                continue
+                            
+                        else:
+                            # Round 1 이상: 이전 round에서 만든 라벨만 처리
+                            if label.created_round != (round_num - 1):
+                                continue
+                            
+                        current_line = label.lines[-1] if label.lines else None
 
-                    # 각 노선별로 탐색
-                    for line in available_lines:
-                        # 같은 노선을 계속 타는 경로
-                        reachable_stations = self._get_stations_on_line(station_name, line)
+                        # 현재 역에서 이용 가능한 모든 노선 찾기
+                        available_lines = set(
+                            neighbor["line"] for neighbor in self.graph[station_name]
+                        )
 
-                        for next_station in reachable_stations:
-                            new_label = self._create_new_label(
-                                label, station_name, next_station, line, disability_type
+                        # 각 노선별로 탐색
+                        for line in available_lines:
+                            # Round 1+: 이미 타고 있던 노선은 스킵 (환승만 처리)
+                            if round_num > 0 and line == current_line:
+                                continue
+                            
+                            # 같은 노선을 타고 갈 수 있는 모든 역 찾기
+                            reachable_stations = self._get_stations_on_line(
+                                station_name, line
                             )
 
-                            if self._is_pareto_optimal(new_label, labels[next_station]):
-                                labels[next_station].append(new_label)
-                                updated = True
-                                labels[next_station] = [
-                                    l
-                                    for l in labels[next_station]
-                                    if not new_label.dominates(l)
-                                ]
+                            for next_station in reachable_stations:
+                                new_label = self._create_new_label(
+                                    label,
+                                    station_name,
+                                    next_station,
+                                    line,
+                                    disability_type,
+                                    round_num,  # 현재 round에 생성됨
+                                )
+
+                                # 중복체크
+                                is_duplicate = any(
+                                    self._labels_equal(new_label, existing)
+                                    for existing in labels[next_station]
+                                )
+
+                                # 중복이 아니고 파레토 최적일 경우에만 경로 추가
+                                if not is_duplicate and self._is_pareto_optimal(
+                                    new_label, labels[next_station]
+                                ):
+                                    labels[next_station].append(new_label)
+                                    updated = True
+                                    labels[next_station] = [
+                                        l
+                                        for l in labels[next_station]
+                                        if not new_label.dominates(l)
+                                    ]
 
                 if not updated:
                     break
 
-        return labels.get(destination, [])
+            return labels.get(destination, [])
 
     def _get_stations_on_line(self, start_station: str, line: str) -> List[str]:
         """
@@ -268,6 +313,7 @@ class McRAPTOR:
         to_station: str,
         line: str,  # int로 변경?? -> X, DB에서 varchar(20)임
         disability_type: str,
+        created_round_num: int,
     ) -> Label:
         """새로운 라벨 생성"""
         # 이동 시간 계산
@@ -302,6 +348,7 @@ class McRAPTOR:
             convenience_score=min(prev_label.convenience_score, convenience),
             route=prev_label.route + [to_station],
             lines=prev_label.lines + [line],  # lines(리스트임)
+            created_round=created_round_num,
         )  # list.append() -> return None이므로(in-place 수정 함수) append함수 쓰면 안됨
 
     def _get_station_coords(self, station_name: str) -> Tuple[float, float]:
@@ -364,6 +411,16 @@ class McRAPTOR:
             if existing.dominates(new_label):
                 return False
         return True
+
+    def _labels_equal(self, label1: Label, label2: Label) -> bool:
+        """label이 동일한지 체크"""
+        return (
+            label1.arrival_time == label2.arrival_time
+            and label1.transfers == label2.transfers
+            # and label1.walking_distance == label2.walking_distance
+            # and label1.convenience_score == label2.convenience_score
+            and label1.route == label2.route
+        )
 
     # def _is_different_line(self, station1: str, station2: str) -> bool
 
