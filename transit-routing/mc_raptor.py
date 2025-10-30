@@ -161,55 +161,71 @@ class McRAPTOR:
             )
         )
 
-        # debugging용 로그
-        logger.info(f"Origin line: {line_num}")
-        logger.info(f"Initial labels: {labels}")
-        logger.info(f"Starting first round")
-
         # round별 탐색
         for round_num in range(max_rounds):
-            logger.info(f"현재 라운드 : {round_num}")
-
             updated = False
-            # 모든 역에서 확장
+            
             for station_name, station_labels in list(labels.items()):
-                logger.info(
-                    f"Checking station: {station_name}, labels: {len(station_labels)}"
-                )
                 if station_name not in self.graph:
                     continue
-
-                # 인접 역으로 확장
                 
-                for neighbor in self.graph[station_name]:
-                    logger.info(f"  Neighbor: {neighbor['to']}")
-                    next_station = neighbor["to"]
-
-                    for label in station_labels:
-                        # 새로운 라벨 생성
+                for label in station_labels:
+                    # 현재 역에서 탈 수 있는 노선 전부 확인
+                    current_line = label.lines[-1] if label.lines else None
+                    
+                    # 같은 노선을 따라 갈 수 있는 모든 역 찾기
+                    reachable_stations = self._get_stations_on_line(
+                        station_name, current_line
+                    )
+                    
+                    for next_station in reachable_stations:
                         new_label = self._create_new_label(
-                            label,
-                            station_name,
-                            next_station,
-                            neighbor["line"],
-                            disability_type,
+                            label, station_name, next_station,current_line,disability_type
                         )
-
-                        # 파레토 최적성 검사
+                        
                         if self._is_pareto_optimal(new_label, labels[next_station]):
                             labels[next_station].append(new_label)
-                            updated = True
-
-                            # 기존 라벨 중 지배당하는 것 제거
+                            updated=True
                             labels[next_station] = [
-                                l
-                                for l in labels[next_station]
-                                if not new_label.dominates(l)
+                                l for l in labels[next_station]
+                                if not new_label.dominates()
                             ]
             if not updated:
                 break
-
+            
         return labels.get(destination, [])
+    
+    def _get_stations_on_line(self, start_station: str, line: str) -> List[str]:
+        """
+        같은 노선을 타고 갈 수 있는 모든 역 반환
+
+        Args:
+            start_station (str): 출발역
+            line (str): 노선
+
+        Returns:
+            List[str]: 같은 노선으로 도달 가능한 역 리스트
+        """
+        reachable = []
+        visited = {start_station}
+        queue = [start_station]
+        
+        while queue:
+            current = queue.pop(0)
+            
+            if current not in self.graph:
+                continue
+            for neighbor in self.graph[current]:
+                next_station = neighbor["to"]
+                neighbor_line = neighbor["line"]
+                
+                # 같은 노선이고 아직 방문하지 않은 역
+                if neighbor_line == line and next_station not in visited:
+                    reachable.append(next_station)
+                    visited.add(next_station)
+                    queue.append(next_station)
+        
+        return reachable
 
     def rank_routes(
         self, routes: List[Label], disability_type: str
