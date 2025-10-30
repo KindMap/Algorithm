@@ -42,3 +42,7 @@ types-PyYAML>=6.0.12
 # Database
 SQLAlchemy>=2.0.0
 psycopg2-binary>=2.9.0  # PostgreSQL
+
+# Flask
+Flask>=3.0.0
+Flask-CORS>=4.0.0
