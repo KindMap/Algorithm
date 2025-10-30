@@ -2,11 +2,16 @@ from flask import Flask, request, jsonify
 from typing import Dict, List, Optional
 import logging
 from contextlib import contextmanager
+from dotenv import load_dotenv
+
+# 환경변수 로드
+load_dotenv()
 
 from database import (
     initialize_pool,
     close_pool,
     get_all_stations,
+    get_station_by_code,
     get_all_sections,
     get_all_transfer_station_conv_scores,
     get_distance_calculator,
@@ -17,39 +22,40 @@ from config import DISABILITY_TYPES
 
 # logging level 설정
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s | %(levelname)s : [%(name)s] : %(message)s'
+    level=logging.INFO, format="%(asctime)s | %(levelname)s : [%(name)s] : %(message)s"
 )
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
+
 def initialize_app():
     """application, database connection pool 초기화"""
     global anp_calculator, mc_raptor
-    
+
     logger.info("application initializing started")
-    
+
     # database connection pool initialized
     initialize_pool()
-    
+
     anp_calculator = ANPWeightCalculator()
-    
+
     # data loading
     stations = get_all_stations()
     sections = get_all_sections()
     convenience_scores = get_all_transfer_station_conv_scores()
     distance_calc = get_distance_calculator()
-    
+
     # create McRAPTOR instance
     mc_raptor = McRAPTOR(
         stations=stations,
         sections=sections,
         convenience_scores=convenience_scores,
         distance_calc=distance_calc,
-        anp_calculator=anp_calculator
+        anp_calculator=anp_calculator,
     )
-    
+
     logger.info("application initialized")
+
 
 @app.before_request
 def before_request():
@@ -59,7 +65,7 @@ def before_request():
         initialize_app()
 
 
-@app.route('/health', methods=['GET'])
+@app.route("/health", methods=["GET"])
 def health_check():
     """헬스 체크"""
     return (

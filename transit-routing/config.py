@@ -2,7 +2,7 @@ import os
 from typing import Dict, Any
 
 DB_CONFIG = {
-    "endpoint": os.getenv("DB_ENDPOINT", "rds_endpoint"),
+    "host": os.getenv("DB_HOST", "rds_endpoint"),
     "port": int(os.getenv("DB_PORT", 5432)),
     "database": os.getenv("DB_NAME", "database_name"),
     "user": os.getenv("DB_USER", "postgres"),
