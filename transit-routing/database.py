@@ -68,7 +68,7 @@ def get_db_connection():
 @contextmanager
 def get_db_cursor(cursor_factory=RealDictCursor):
     """Cursor 가져오기"""
-    with get_db_connection as connection:
+    with get_db_connection() as connection:
         cursor = connection.cursor(cursor_factory=cursor_factory)
         try:
             yield cursor
@@ -161,7 +161,7 @@ def get_all_transfer_station_conv_scores() -> List[Dict]:
     """모든 환승역 편의성 점수 조회"""
     query = """
     SELECT * FROM transfer_station_convenience
-    ORDER BY station_id
+    ORDER BY station_cd
     """
 
     with get_db_cursor() as cursor:

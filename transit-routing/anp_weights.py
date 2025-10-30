@@ -51,7 +51,7 @@ class ANPWeightCalculator:
             ]
         )
 
-    def _get_elderly_matrix(self) -> np.ndarray:
+    def _get_eld_matrix(self) -> np.ndarray:
         # 고령자: 보행거리 > 환승 > 소요시간 > 편의도
         return np.array(
             [
