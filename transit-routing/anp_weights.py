@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class ANPWeightCalculator:
     def __init__(self):
-        self.pairwise_matrics = {
+        self.pairwise_matrices = {
             "PHY": self._get_phy_matrix(),  # 지체 장애(휠체어 사용자)
             "VIS": self._get_vis_matrix(),  # 시각 장애(저시력자)
             "AUD": self._get_aud_matrix(),  # 청각 장애(농인)

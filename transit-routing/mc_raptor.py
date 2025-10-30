@@ -170,33 +170,34 @@ class McRAPTOR:
                     continue
 
                 for label in station_labels:
-                    # 현재 역에서 탈 수 있는 노선 전부 확인
                     current_line = label.lines[-1] if label.lines else None
 
-                    # 같은 노선을 따라 갈 수 있는 모든 역 찾기
-                    reachable_stations = self._get_stations_on_line(
-                        station_name, current_line
+                    # 현재 역에서 이용 가능한 모든 노선 찾기
+                    available_lines = set(
+                        neighbor["line"] for neighbor in self.graph[station_name]
                     )
 
-                    for next_station in reachable_stations:
-                        new_label = self._create_new_label(
-                            label, station_name, next_station,current_line,disability_type
-                        )
+                    # 각 노선별로 탐색
+                    for line in available_lines:
+                        # 같은 노선을 계속 타는 경로
+                        reachable_stations = self._get_stations_on_line(station_name, line)
 
-                        if self._is_pareto_optimal(new_label, labels[next_station]):
-                            # 기존 경로 중 new_label에 지배당하는 것을 제거함
-                            updated=True
-                            labels[next_station] = [
-                                l for l in labels[next_station]
-                                if not new_label.dominates(l)
-                            ]
-                            # new_label 추가
-                            labels[next_station].append(new_label)
-                    
-                    # 환승 로직 추가하기
-                        
-            if not updated:
-                break
+                        for next_station in reachable_stations:
+                            new_label = self._create_new_label(
+                                label, station_name, next_station, line, disability_type
+                            )
+
+                            if self._is_pareto_optimal(new_label, labels[next_station]):
+                                labels[next_station].append(new_label)
+                                updated = True
+                                labels[next_station] = [
+                                    l
+                                    for l in labels[next_station]
+                                    if not new_label.dominates(l)
+                                ]
+
+                if not updated:
+                    break
 
         return labels.get(destination, [])
 
