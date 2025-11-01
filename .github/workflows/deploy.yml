@@ -3,10 +3,10 @@ name: Build and Deploy to EC2
 on:
   push:
     branches:
-      - main  # 또는 develop, master 등
+      - main
 
 permissions:
-  id-token: write  # OIDC 토큰 발급 권한
+  id-token: write
   contents: read
 
 jobs:
@@ -14,53 +14,80 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # 1. 코드 체크아웃
       - name: Checkout code
         uses: actions/checkout@v4
       
-      # 2. AWS 자격증명 설정 (OIDC)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
       
-      # 3. ECR 로그인
+      # ECR Repository 정보 추출
+      - name: Extract ECR details from ARN
+        id: ecr-details
+        run: |
+          ARN="${{ secrets.ECR_REPOSITORY_ARN }}"
+          
+          # ARN에서 region 추출
+          REGION=$(echo $ARN | cut -d':' -f4)
+          
+          # ARN에서 account ID 추출
+          ACCOUNT_ID=$(echo $ARN | cut -d':' -f5)
+          
+          # ARN에서 repository name 추출
+          REPO_NAME=$(echo $ARN | cut -d'/' -f2)
+          
+          # ECR Registry 구성
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+          
+          echo "region=${REGION}" >> $GITHUB_OUTPUT
+          echo "account-id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+          echo "repository=${REPO_NAME}" >> $GITHUB_OUTPUT
+          echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
+          echo "repository-uri=${REGISTRY}/${REPO_NAME}" >> $GITHUB_OUTPUT
+      
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        run: |
+          aws ecr get-login-password --region ${{ steps.ecr-details.outputs.region }} | \
+            docker login --username AWS --password-stdin ${{ steps.ecr-details.outputs.registry }}
       
-      # 4. Docker 이미지 빌드 및 푸시
       - name: Build and push Docker image
         env:
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./transit-routing
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker build -t $REPOSITORY_URI:$IMAGE_TAG ./transit-routing
+          docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:latest
+          docker push $REPOSITORY_URI:$IMAGE_TAG
+          docker push $REPOSITORY_URI:latest
       
-      # 5. EC2에 배포 명령 전송
       - name: Deploy to EC2
         env:
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
           IMAGE_TAG: ${{ github.sha }}
           INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
           CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
           CONTAINER_PORT: ${{ secrets.CONTAINER_PORT }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_REGION: ${{ steps.ecr-details.outputs.region }}
+          ECR_REGISTRY: ${{ steps.ecr-details.outputs.registry }}
         run: |
           aws ssm send-command \
             --instance-ids $INSTANCE_ID \
             --document-name "AWS-RunShellScript" \
             --parameters commands="[
-              'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY',
-              'docker pull $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG',
-              'docker stop $CONTAINER_NAME || true',
-              'docker rm $CONTAINER_NAME || true',
-              'docker run -d --name $CONTAINER_NAME -p $CONTAINER_PORT:$CONTAINER_PORT $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG'
+              'aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}',
+              'docker pull ${REPOSITORY_URI}:${IMAGE_TAG}',
+              'docker stop ${CONTAINER_NAME} || true',
+              'docker rm ${CONTAINER_NAME} || true',
+              'docker run -d --name ${CONTAINER_NAME} -p ${CONTAINER_PORT}:${CONTAINER_PORT} ${REPOSITORY_URI}:${IMAGE_TAG}'
             ]" \
+            --region ${{ steps.ecr-details.outputs.region }} \
             --output text
+      
+      - name: Verify deployment
+        run: |
+          echo "✅ Deployment completed"
+          echo "📦 Image: ${{ steps.ecr-details.outputs.repository-uri }}:${{ github.sha }}"
+          echo "🚀 Instance: ${{ secrets.EC2_INSTANCE_ID }}"
