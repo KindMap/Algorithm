@@ -46,3 +46,6 @@ psycopg2-binary>=2.9.0  # PostgreSQL
 # Flask
 Flask>=3.0.0
 Flask-CORS>=4.0.0
+
+# swagger-api
+flasgger
