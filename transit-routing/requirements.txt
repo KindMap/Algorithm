@@ -49,3 +49,10 @@ Flask-CORS>=4.0.0
 
 # swagger-api
 flasgger
+
+# for navigation + session
+flask-socketio==5.3.4
+python-socketio==5.9.0
+eventlet==0.33.3
+redis==5.0.1
+celery==5.3.4
