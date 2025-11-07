@@ -159,6 +159,14 @@ class ANPWeightCalculator:
 
         Returns:
             혼잡도 (0.0 ~ 1.0)
+            - 0.0 = 빈 열차
+            - 0.34 = 좌석만 만석
+            - 1.0 = 정원 100% (입석 포함)
+            - 1.0+ = 정원 초과
+
+        Note:
+            실제 데이터 범위: 0% ~ 139.6% (최대값 기준)
+            평균: 56.96%, 표준편차: 34.91%
         """
         day_type = self._get_day_type(departure_time)
         time_column = self._get_time_column(departure_time)
@@ -178,9 +186,19 @@ class ANPWeightCalculator:
                 result = cursor.fetchone()
 
                 if result and result["congestion_level"] is not None:
-                    return float(result["congestion_level"]) / 100.0
+                    # time_colemn <- congetsion_level 별칭 사용
+                    congestion_percent = float(result["congestion_level"])
+                    # % 값을 0.0 ~ 1.0+ 범위로 정규화
+                    # 100% -> 1.0
+                    normalized = congestion_percent / 100.0
+
+                    return normalized
                 else:
-                    logger.warning(f"혼잡도 없음: {station_cd}, {line}, {direction}")
+                    logger.warning(
+                        f"혼잡도 없음: station_cd={station_cd}, line={line}, "
+                        f"direction={direction}, day_type={day_type}, time={time_column}"
+                    )
+                    # 혼잡도 정보가 없을 시 default_value 사용 -> 혼잡도 평균
                     return CONGESTION_CONFIG["default_value"]
 
         except Exception as e:
@@ -200,7 +218,9 @@ class ANPWeightCalculator:
     def _get_time_column(self, dt: datetime) -> str:
         """시간대를 컬럼명으로 변환 (30분 단위)"""
         minutes_from_midnight = dt.hour * 60 + dt.minute
+        # 30분 단위로 내림
         slot_minutes = (minutes_from_midnight // 30) * 30
+
         return f"t_{slot_minutes}"
 
     def calculate_transfer_difficulty(
@@ -249,11 +269,13 @@ class ANPWeightCalculator:
             - 혼잡도 = 열차 정원 대비 승차 인원 비율 (%)
             - 좌석만 만석 시 34% 기준
             - 100% 초과 시 입석 승객 존재
+            - NULL 값은 제외하고 평균 계산
         """
         if not route_segments:
             return 0.0
 
         total_congestion = 0.0
+        valid_segment_count = 0
         current_time = departure_time
 
         for segment in route_segments:
@@ -263,10 +285,9 @@ class ANPWeightCalculator:
                 segment["direction"],
                 current_time,
             )
-            # 혼잡도가 유효한 경우만 합산
-            if congestion is not None:
-                total_congestion += congestion
-                valid_segment_count += 1
+
+            total_congestion += congestion
+            valid_segment_count += 1
 
             # 다음 구간 시각 업데이트
             current_time += timedelta(minutes=segment.get("duration_min", 2))
@@ -277,7 +298,14 @@ class ANPWeightCalculator:
             return CONGESTION_CONFIG["default_value"]
 
         # 평균 혼잡도 반환 (0.0 ~ 1.0)
-        return total_congestion / len(route_segments)
+        avg_congestion = total_congestion / valid_segment_count
+
+        logger.debug(
+            f"경로 혼잡도: 평균={avg_congestion:.2f}, "
+            f"구간수={valid_segment_count}, 총합={total_congestion:.2f}"
+        )
+
+        return avg_congestion
 
     def _load_facility_preferences_from_db(self) -> Dict[str, Dict[str, float]]:
         """DB에서 시설별 선호도 가중치 로드"""
