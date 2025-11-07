@@ -84,6 +84,7 @@ def get_db_cursor(cursor_factory=RealDictCursor):
 # 정보 조회 쿼리 함수들
 # 단순 정보 조회는 람다 함수로 구현해둠 => 시스템 안정성을 위해 기존 함수 남겨둠
 
+
 # 현재 전체 역 정보 조회 함수 호출이 잦은 편
 # 최적화 => 캐싱 파일로 모든 역 정보 저장해두기
 def get_all_stations(line: Optional[str] = None) -> List[Dict]:
@@ -317,3 +318,132 @@ def get_nearby_stations(lat: float, lon: float, radius_km: float = 1.0) -> List[
     with get_db_cursor() as cursor:
         cursor.execute(query, {"lat": lat, "lon": lon, "radius_m": radius_km * 1000})
         return cursor.fetchall()
+
+
+# 추가된 db 관련 함수 추가(혼잡도, 환승 거리)
+def get_station_code(station_id: str) -> str:
+    """station_id로 station_cd 조회"""
+    query = """
+    SELECT station_cd 
+    FROM stations 
+    WHERE station_id = %s
+    """
+
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(query, (station_id,))
+            result = cursor.fetchone()
+
+            if result:
+                return result["station_cd"]
+            else:
+                logger.warning(f"역 코드 없음: {station_id}")
+                return None
+
+    except Exception as e:
+        logger.error(f"역 코드 조회 실패: {e}")
+        return None
+
+
+def get_station_number(station_id: str) -> int:
+    """station_id로 station_num 조회 => 상/하/내/외선 구분용"""
+    query = """
+    SELECT station_num 
+    FROM stations 
+    WHERE station_id = %s
+    """
+
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(query, (station_id,))
+            result = cursor.fetchone()
+
+            if result:
+                return int(result["station_num"])
+            else:
+                logger.warning(f"역 번호 없음: {station_id}")
+                return 0
+
+    except Exception as e:
+        logger.error(f"역 번호 조회 실패: {e}")
+        return 0
+
+
+def get_station_info(station_id: str) -> Dict[str, any]:
+    """
+    역 전체 정보 조회 (한 번에 가져오기)
+
+    Returns:
+        {'station_cd': str, 'station_num': int, 'station_name': str}
+    """
+    query = """
+    SELECT station_cd, station_num, station_name
+    FROM stations 
+    WHERE station_id = %s
+    """
+
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(query, (station_id,))
+            result = cursor.fetchone()
+
+            if result:
+                return {
+                    "station_cd": result["station_cd"],
+                    "station_num": int(result["station_num"]),
+                    "station_name": result["station_name"],
+                }
+            else:
+                return None
+
+    except Exception as e:
+        logger.error(f"역 정보 조회 실패: {e}")
+        return None
+
+
+def get_transfer_distance(station_cd: str, from_line: str, to_line: str) -> float:
+    """
+    환승 거리 조회
+
+    Args:
+        station_cd: 역 코드 (예: '0222')
+        from_line: 출발 호선 (예: '2')
+        to_line: 환승 대상 호선 (예: '3')
+
+    Returns:
+        환승 거리 (미터), 없으면 DEFAULT_TRANSFER_DISTANCE
+    """
+    from config import DEFAULT_TRANSFER_DISTANCE
+
+    query = """
+    SELECT distance
+    FROM transfer_distance_time
+    WHERE station_cd = %s 
+      AND line_num = %s
+      AND transfer_line = %s
+    """
+
+    try:
+        # 호선 번호 변환 (문자열 → 숫자)
+        line_num = int(from_line) if from_line.isdigit() else None
+
+        if not line_num:
+            logger.warning(f"호선 번호 변환 실패: {from_line}")
+            return DEFAULT_TRANSFER_DISTANCE
+
+        with get_db_cursor() as cursor:
+            cursor.execute(query, (station_cd, line_num, to_line))
+            result = cursor.fetchone()
+
+            if result:
+                return float(result["distance"])
+            else:
+                logger.warning(
+                    f"환승 거리 없음: {station_cd}, {from_line}→{to_line}, "
+                    f"기본값 {DEFAULT_TRANSFER_DISTANCE}m 사용"
+                )
+                return DEFAULT_TRANSFER_DISTANCE
+
+    except Exception as e:
+        logger.error(f"환승 거리 조회 실패: {e}")
+        return DEFAULT_TRANSFER_DISTANCE
