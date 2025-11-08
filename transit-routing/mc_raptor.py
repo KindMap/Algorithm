@@ -40,6 +40,8 @@ class McRaptor:
         self._congestion_cache = {}
         self._convenience_cache = {}
         self._facility_scores_cache = {}
+        self._line_stations_cache = {}
+        self._station_order_cache = {}
 
         # 현재 탐색 중인 장애 유형 및 출발 시각
         self.disability_type = None
@@ -131,7 +133,7 @@ class McRaptor:
         )
 
         # 출발역의 편의도
-        origin_convenience = self._calculate_convenience_score(origin)
+        origin_convenience = self._calculate_convenience_score_cached(origin)
 
         # 초기 라벨 생성
         labels[origin].append(
@@ -152,10 +154,32 @@ class McRaptor:
             logger.info(f"=== Round {round_num} 시작 ===")
             updated = False
 
+            # 이번 라운드에서 생성된 라벨만 탐색
+            stations_to_explore = []
             for station_name, station_labels in list(labels.items()):
                 if station_name not in self.graph:
                     continue
 
+                if round_num == 0:
+                    # Round 0: created_round=0인 라벨만 (초기 라벨)
+                    relevant_labels = [
+                        l for l in station_labels 
+                        if l.created_round == 0
+                    ]
+                else:
+                    # Round 1+: 이전 라운드에서 생성된 라벨만
+                    relevant_labels = [
+                        l for l in station_labels 
+                        if l.created_round == round_num - 1
+                    ]
+
+                if relevant_labels:
+                    stations_to_explore.append((station_name, relevant_labels))
+            
+            logger.info(f"탐색 대상: {len(stations_to_explore)}개 역, "
+                    f"{sum(len(lbls) for _, lbls in stations_to_explore)}개 라벨")
+
+            for station_name, station_labels in stations_to_explore:
                 for label in station_labels:
                     # 이미 최대 환승수를 초과한 라벨은 스킵
                     if label.transfers > round_num:
@@ -176,6 +200,11 @@ class McRaptor:
                         # 해당 노선으로 갈 수 있는 역들
                         reachable_stations = self._get_stations_on_line(
                             station_name, line
+                        )
+
+                        # 목적지 방향 우선으로 역 탐색
+                        reachable_stations = self._get_stations_on_line(
+                            station_name, line, destination
                         )
 
                         for next_station in reachable_stations:
@@ -241,7 +270,7 @@ class McRaptor:
         created_round_num: int,
     ) -> Label:
         """새로운 라벨 생성"""
-        # 지하철 역간 이동 시간 (MVP: 2분 고정) 
+        # 지하철 역간 이동 시간 (MVP: 2분 고정)
         travel_time = 2.0
 
         # 환승 여부 확인
@@ -262,7 +291,7 @@ class McRaptor:
             )
 
             # 환승역 시설 점수 조회 <- 캐싱 적용
-            facility_scores = self.self._get_facility_scores_cached(from_station)
+            facility_scores = self._get_facility_scores_cached(from_station)
 
             # 환승 난이도 계산
             transfer_difficulty_delta = (
@@ -323,13 +352,63 @@ class McRaptor:
             created_round=created_round_num,
         )
 
-    def _get_stations_on_line(self, start_station: str, line: str) -> List[str]:
-        """특정 노선으로 갈 수 있는 모든 역 반환"""
-        reachable = []
-        for neighbor in self.graph[start_station]:
-            if neighbor["line"] == line:
-                reachable.append(neighbor["to"])
-        return reachable
+    def _get_stations_on_line(
+        self, start_station: str, line: str, destination: str = None
+    ) -> List[str]:
+        """
+        특정 노선으로 갈 수 있는 역 반환(BFS)
+        목적지가 있으면 section_order 기준으로 목적지 방향 우선 정렬
+        """
+        cache_key = (start_station, line)
+        
+        # 전체 역 리스트 캐싱
+        if cache_key not in self._line_stations_cache:
+            visited = set([start_station])
+            queue = [start_station]
+            all_reachable = []
+            
+            while queue:
+                current = queue.pop(0)
+                
+                for neighbor in self.graph.get(current, []):
+                    if neighbor["line"] == line and neighbor["to"] not in visited:
+                        visited.add(neighbor["to"])
+                        all_reachable.append(neighbor["to"])
+                        queue.append(neighbor["to"])
+            
+            self._line_stations_cache[cache_key] = all_reachable
+        
+        all_reachable = self._line_stations_cache[cache_key]
+        
+        # 목적지가 주어지면 section_order를 기준으로 정렬
+        if destination:
+            # 시작역과 목적지 역의 order 조회
+            start_order = self._get_station_order(start_station, line)
+            dest_order = self._get_station_order(destination, line)
+            
+            if start_order is None or dest_order is None:
+                # 순서 정보를 못 찾으면 기본 BFS 순서 반환
+                return all_reachable
+            
+            # 목적지가 더 큰 order면 ascending 정렬, 작으면 descending 정렬
+            ascending = dest_order > start_order
+            
+            # 각 역의 section_order 값 가져오기
+            stations_with_order = []
+            for station in all_reachable:
+                order = self._get_station_order(station, line)
+                if order is not None:
+                    stations_with_order.append((station, order))
+                else:
+                    # 순서 정보 없는 역은 max값으로(뒤로 보내기)
+                    stations_with_order.append((station, float('inf')))
+            
+            # 정렬
+            stations_with_order.sort(key=lambda x: x[1], reverse=not ascending)
+            
+            return [s for s, _ in stations_with_order]
+        
+        return all_reachable
 
     def _get_station_info_cached(self, station_id: int) -> Dict:
         """역 정보 조회 (캐싱)"""
@@ -392,43 +471,41 @@ class McRaptor:
         )
 
     def _determine_direction(
-        self, from_station: str, to_station: str, line: str
+    self, from_station: str, to_station: str, line: str
     ) -> str:
         """
         section_order를 이용한 방향 결정
-
+        
         Args:
             from_station: 출발역 이름
             to_station: 도착역 이름
             line: 호선
-
+        
         Returns:
             'up' | 'down' | 'in' | 'out'
         """
-        # 섹션 정보 조회
-        key = (from_station, to_station, line)
-
-        if key not in self.section_order_map:
-            logger.warning(f"섹션 순서 없음: {from_station} → {to_station} ({line})")
-            return "up"  # 기본값
-
-        # sections에서 up_station → down_station 방향 확인
+        # 1. 직접 연결 확인 (인접역)
         for section in self.sections:
-            if (
-                section["line"] == line
-                and section["up_station_name"] == from_station
-                and section["down_station_name"] == to_station
-            ):
-                # up_station → down_station 방향
+            if section["line"] == line:
+                if (section["up_station_name"] == from_station 
+                    and section["down_station_name"] == to_station):
+                    return "in" if line in CIRCULAR_LINES else "down"
+                elif (section["down_station_name"] == from_station 
+                    and section["up_station_name"] == to_station):
+                    return "out" if line in CIRCULAR_LINES else "up"
+        
+        # 2. 비인접 역의 경우 section_order로 방향 추론
+        from_order = self._get_station_order(from_station, line)
+        to_order = self._get_station_order(to_station, line)
+        
+        if from_order is not None and to_order is not None:
+            if to_order > from_order:
                 return "in" if line in CIRCULAR_LINES else "down"
-            elif (
-                section["line"] == line
-                and section["down_station_name"] == from_station
-                and section["up_station_name"] == to_station
-            ):
-                # down_station → up_station 방향 (역방향)
+            else:
                 return "out" if line in CIRCULAR_LINES else "up"
-
+        
+        # 3. 방향 결정 실패
+        logger.warning(f"방향 결정 실패: {from_station} → {to_station} ({line})")
         return "up"  # 기본값
 
     def _is_pareto_optimal(
@@ -439,21 +516,23 @@ class McRaptor:
             if existing.dominates(new_label):
                 return False
         return True
-    
+
     # 최적화를 위한 캐싱 메서드 추가
     def _get_transfer_distance_cached(
         self, station_cd: str, from_line: str, to_line: str
     ) -> float:
         """환승 거리 조회 (캐싱)"""
         cache_key = (station_cd, from_line, to_line)
-        
+
         if cache_key not in self._transfer_distance_cache:
             distance = get_transfer_distance(station_cd, from_line, to_line)
             self._transfer_distance_cache[cache_key] = distance
-            logger.debug(f"캐시 미스: 환승거리 {station_cd} {from_line}→{to_line} = {distance}m")
+            logger.debug(
+                f"캐시 미스: 환승거리 {station_cd} {from_line}→{to_line} = {distance}m"
+            )
         else:
             logger.debug(f"캐시 히트: 환승거리 {cache_key}")
-        
+
         return self._transfer_distance_cache[cache_key]
 
     def _get_congestion_cached(
@@ -463,48 +542,73 @@ class McRaptor:
         # 분 단위 무시하고 시간대만 사용 -> 캐싱 성능을 확인하면서 추후 조정하기
         time_key = current_time.replace(minute=0, second=0, microsecond=0)
         cache_key = (station_cd, line, direction, time_key)
-        
+
         if cache_key not in self._congestion_cache:
             congestion = self.anp_calculator.get_congestion_from_rds(
                 station_cd, line, direction, current_time
             )
             self._congestion_cache[cache_key] = congestion
-            logger.debug(f"캐시 미스: 혼잡도 {station_cd} {line} {direction} = {congestion}")
+            logger.debug(
+                f"캐시 미스: 혼잡도 {station_cd} {line} {direction} = {congestion}"
+            )
         else:
             logger.debug(f"캐시 히트: 혼잡도 {cache_key}")
-        
+
         return self._congestion_cache[cache_key]
-    
+
     def _get_facility_scores_cached(self, station_name: str) -> Dict[str, float]:
         """역의 시설별 편의도 점수 조회 (캐싱)"""
         cache_key = (station_name, self.disability_type)
-        
+
         if cache_key not in self._facility_scores_cache:
             scores = self._get_facility_scores(station_name)  # 기존 메서드 호출
             self._facility_scores_cache[cache_key] = scores
             logger.debug(f"캐시 미스: 편의시설 {station_name}")
         else:
             logger.debug(f"캐시 히트: 편의시설 {cache_key}")
-        
+
         return self._facility_scores_cache[cache_key]
-    
+
     def _calculate_convenience_score_cached(self, station_name: str) -> float:
         """역 편의성 점수 계산 (캐싱)"""
         cache_key = (station_name, self.disability_type)
-        
+
         if cache_key not in self._convenience_cache:
             facility_scores = self._get_facility_scores_cached(station_name)
-            
+
             if not facility_scores:
                 score = 2.5  # 기본값
             else:
                 score = self.anp_calculator.calculate_convenience_score(
                     self.disability_type, facility_scores
                 )
-            
+
             self._convenience_cache[cache_key] = score
             logger.debug(f"캐시 미스: 편의도 {station_name} = {score}")
         else:
             logger.debug(f"캐시 히트: 편의도 {cache_key}")
-        
+
         return self._convenience_cache[cache_key]
+    
+    def _get_station_order(self, station_name: str, line: str) -> Optional[int]:
+        """역의 section_order 조회 (캐싱)"""
+        cache_key = (station_name, line)
+        
+        if cache_key in self._station_order_cache:
+            return self._station_order_cache[cache_key]
+        
+        for section in self.sections:
+            if section["line"] == line:
+                if section["up_station_name"] == station_name:
+                    order = section["section_order"]
+                    self._station_order_cache[cache_key] = order
+                    return order
+                elif section["down_station_name"] == station_name:
+                    # down_station의 order는 section_order보다 1 큼
+                    order = section["section_order"] + 1
+                    self._station_order_cache[cache_key] = order
+                    return order
+        
+        return None
+    
+
