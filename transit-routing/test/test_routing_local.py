@@ -15,7 +15,7 @@ from database import (
     get_all_transfer_station_conv_scores,
     get_distance_calculator,
 )
-from mc_raptor import McRAPTOR
+from mc_raptor import McRaptor
 from anp_weights import ANPWeightCalculator
 import logging
 
@@ -44,13 +44,7 @@ def test_routing_local():
     # 3. McRAPTOR 초기화
     logger.info("McRAPTOR 초기화...")
     anp_calculator = ANPWeightCalculator()
-    mc_raptor = McRAPTOR(
-        stations=stations,
-        sections=sections,
-        convenience_scores=convenience_scores,
-        distance_calc=distance_calc,
-        anp_calculator=anp_calculator,
-    )
+    mc_raptor = McRaptor(stations, sections, convenience_scores, anp_calculator)
 
     # 4. 그래프 확인
     logger.info(f"Graph keys count: {len(mc_raptor.graph)}")
@@ -79,7 +73,7 @@ def test_routing_local():
                 destination=destination,
                 departure_time=540.0,
                 disability_type=disability_type,
-                max_rounds=5,
+                max_rounds=4,
             )
 
             logger.info(f"\n찾은 경로 수: {len(routes)}")

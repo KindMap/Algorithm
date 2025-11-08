@@ -386,7 +386,7 @@ class McRaptor:
     ) -> str:
         """순환선 방향 결정"""
         if line_id == "2":
-            # 2호선 내선/외선 로직 (간단 버전)
+            # 2호선 내선/외선 로직 (간단 버전) -> 추후 내/외선 구별 방법 정확히 찾아서 수정하기
             return "in" if to_station_num > from_station_num else "out"
 
         # 기타 순환선

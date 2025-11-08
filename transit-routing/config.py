@@ -40,8 +40,8 @@ CIRCULAR_LINES = {
 # 혼잡도 관련 설정
 CONGESTION_CONFIG = {
     # 혼잡도(0-100%), 34% => 자리 꽉 참
-    # 추후 호선별 평균 혼잡도를 구해 적용하기
-    "default_value": 0.5,
+    # 평균 혼잡도 -> 56.96% 정규화 적용 => 0.57
+    "default_value": 0.57,
     "time_slot_minutes": 30,
 }
 
