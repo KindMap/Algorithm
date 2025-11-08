@@ -16,9 +16,15 @@ from anp_weights import ANPWeightCalculator
 from database import (
     get_all_stations,
     get_all_sections,
-    get_station_info,
+    get_all_transfer_station_conv_scores,
+    get_station_by_code,  # get_station_info 대신 사용
 )
-from config import DISABILITY_TYPES, WALKING_SPEED, DEFAULT_TRANSFER_DISTANCE
+from config import (
+    DISABILITY_TYPES,
+    WALKING_SPEED,
+    DEFAULT_TRANSFER_DISTANCE,
+    CONGESTION_CONFIG,
+)
 
 # 로깅 설정
 logging.basicConfig(
@@ -27,8 +33,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 전역 변수
-raptor_instance = None
-anp_calculator = None
+raptor_instance: Optional[McRaptor] = None
+anp_calculator: Optional[ANPWeightCalculator] = None
 
 # 장애 유형별 선호 편의시설 매핑
 PREFERRED_FACILITIES = {
@@ -53,17 +59,23 @@ async def lifespan(app: FastAPI):
         initialize_pool()
         logger.info("database connection pool 초기화 완료")
 
+        # db에서 모든 데이터 미리 로드
         stations = get_all_stations()
         sections = get_all_sections()
+        convenience_scores = get_all_transfer_station_conv_scores()
 
-        logger.info(f"로드 완료: 역 {len(stations)}개, 구간 {len(sections)}개")
+        logger.info(
+            f"로드 완료: 역 {len(stations)}개, 구간 {len(sections)}개, 편의성 점수 {len(convenience)} 개"
+        )
 
+        # => anp_calculator 초기화 + 혼잡도 데이터 로드
         anp_calculator = ANPWeightCalculator()
 
+        # McRaptor 초기화 + 그래프 및 맵 사전 연산
         raptor_instance = McRaptor(
             stations=stations,
             sections=sections,
-            convenience_scores={},
+            convenience_scores=convenience_scores,
             anp_calculator=anp_calculator,
         )
 
@@ -134,7 +146,7 @@ class RouteResponse(BaseModel):
     congestion_score: float  # 평균 혼잡도 점수
     anp_score: float  # ANP 종합 점수
     segments: List[RouteSegment]  # 경로 세그먼트
-    transfer_stations: List[str]  # 환승역 목록
+    transfer_stations: List[str]  # 환승역 목록(이름)
     transfer_details: List[TransferStationDetail]  # 환승역 상세 정보
     preferred_facilities_available: Dict[str, bool]  # 선호 편의시설 유무
 
@@ -187,7 +199,7 @@ async def search_route(request: RouteRequest):
 
         logger.info(
             f"경로 탐색 시작: {request.origin} → {request.destination} "
-            f"({request.disability_type})"
+            f"({request.disability_type}, {request.departure_time})"
         )
 
         # Mc-RAPTOR로 파레토 최적 경로 탐색
@@ -200,10 +212,13 @@ async def search_route(request: RouteRequest):
         )
 
         if not pareto_routes:
-            logger.warning(f"경로 없음: {request.origin} → {request.destination}")
+            search_time = time.time() - start_time
+            logger.warning(
+                f"경로 없음: {request.origin} → {request.destination} ({search_time:.2f}초)"
+            )
             return SearchResponse(
                 routes=[],
-                search_time=time.time() - start_time,
+                search_time=search_time,
                 message=f"{request.origin}에서 {request.destination}까지 가는 경로를 찾을 수 없습니다",
             )
 
@@ -218,14 +233,21 @@ async def search_route(request: RouteRequest):
         # 응답 형식으로 변환
         response_routes = []
         for label, anp_score in top_routes:
+            # [수정] station_cd 기반의 label을 이름 기반으로 변환
             segments = _create_segments(label)
             transfer_details = _create_transfer_details(
                 label, request.disability_type, request.departure_time
             )
 
-            # 경로 전체의 총합 계산
-            total_convenience = sum(td.convenience_score for td in transfer_details)
-            total_congestion = sum(td.congestion_score for td in transfer_details)
+            # 경로 전체의 편의도/혼잡도 평균 (Label에 이미 계산되어 있음)
+            total_convenience = label.convenience_score
+            total_congestion = label.congestion_score
+
+            # 환승역 이름 목록 (cd -> name)
+            transfer_station_names = [
+                raptor_instance.get_station_name_from_cd(cd)
+                for cd in label.transfer_stations
+            ]
 
             # 선호 편의시설 유무 집계
             preferred_facility_list = PREFERRED_FACILITIES.get(
@@ -240,7 +262,7 @@ async def search_route(request: RouteRequest):
                         for td in transfer_details
                     )
                     if transfer_details
-                    else False
+                    else False  # 환승이 없으면 False
                 )
                 overall_facilities[facility] = has_facility
 
@@ -253,7 +275,7 @@ async def search_route(request: RouteRequest):
                     congestion_score=total_congestion,
                     anp_score=anp_score,
                     segments=segments,
-                    transfer_stations=list(label.transfer_stations),
+                    transfer_stations=transfer_station_names,
                     transfer_details=transfer_details,
                     preferred_facilities_available=overall_facilities,
                 )
@@ -285,7 +307,7 @@ def _create_segments(label: Label) -> List[RouteSegment]:
     Label로부터 RouteSegment 리스트 생성
 
     Args:
-        label: 경로 라벨
+        label(station_cd 기반) => RouteSegment(이름 기반) 리스트 생성
 
     Returns:
         List[RouteSegment]: 구간별 정보
@@ -294,19 +316,27 @@ def _create_segments(label: Label) -> List[RouteSegment]:
     cumulative_time = 0.0
     time_per_segment = 2.0  # 기본 구간 이동시간 (분)
 
-    for i, station in enumerate(label.route):
+    # label.route -> List[staion_cd]
+    for i, station_cd in enumerate(label.route):
         if i == 0:
             cumulative_time = 0.0
         else:
-            cumulative_time += time_per_segment
+            cumulative_time = (
+                label.arrival_time
+                if (i == len(label.route) - 1)
+                else time_per_segment * i
+            )
 
         if i < len(label.lines):
             line = label.lines[i]
         else:
             line = label.lines[-1] if label.lines else "Unknown"
 
+        # station_cd -> station_name 변환
+        station_name = raptor_instance.get_station_name_from_cd(station_cd)
+
         segments.append(
-            RouteSegment(station=station, line=line, arrival_time=cumulative_time)
+            RouteSegment(station=station_name, line=line, arrival_time=cumulative_time)
         )
 
     return segments
@@ -316,7 +346,7 @@ def _create_transfer_details(
     label: Label, disability_type: str, departure_time: datetime
 ) -> List[TransferStationDetail]:
     """
-    환승역 상세 정보 생성
+    staion_cd 기반 조회 + 환승 컨텍스트 활용하여 환승역 상세 정보 생성
 
     Args:
         label: 경로 라벨
@@ -326,33 +356,48 @@ def _create_transfer_details(
     Returns:
         List[TransferStationDetail]: 환승역 상세 정보 목록
     """
+    # 전역 인스턴스 사용
+    global raptor_instance, anp_calculator
+
     transfer_details = []
     preferred_facility_list = PREFERRED_FACILITIES.get(disability_type, [])
     walking_speed = WALKING_SPEED.get(disability_type, 1.0)
 
-    for station_name in label.transfer_stations:
+    # label.transfer_context 에서 (station_cd, from_line, to_line) 정보를 가져옴
+    for station_cd, from_line, to_line in label.transfer_context:
         try:
-            # 역 정보 조회
-            station_info = get_station_info(station_name)
+            # station_cd로 역 이름, 기본 호선 등 기본 정보 조회
+            station_info = raptor_instance.get_station_info_from_cd(station_cd)
+            station_name = station_info.get("name", "Unknown")
 
-            # McRaptor 인스턴스의 메서드로 편의도 계산
-            convenience_score = raptor_instance._calculate_convenience_score(
-                station_name, disability_type
+            # station_cd로 편의도 점수 계산
+            convenience_score = raptor_instance._calculate_convenience_score_cached(
+                station_cd
             )
+            # label.route에서 현재 환승역의 다음 역을 찾아 실제 진행 방향을 파악
+            try:
+                # 현재 환승역이 경로상 몇 번째인지 찾기
+                current_idx = label.route.index(station_cd)
+                # 경로상의 바로 다음 역
+                next_station_cd = label.route[current_idx + 1]
 
-            # 혼잡도 조회 (ANP 계산기 활용)
-            station_cd = station_info.get("station_cd", "")
-            line = station_info.get("line", "")
-            direction = station_info.get("direction", "up")
+                # to_line을 기준으로 방향 결정
+                direction = raptor_instance._determine_direction(
+                    station_cd, next_station_cd, to_line
+                )
+            except (ValueError, IndexError):
+                # 기본 방향 up으로 설정
+                direction = "up"
 
             congestion_score = anp_calculator.get_congestion_from_rds(
-                station_cd, line, direction, departure_time
+                station_cd, to_line, direction, departure_time
             )
 
-            # 보행 거리 및 시간
-            walking_distance = station_info.get(
-                "transfer_distance", DEFAULT_TRANSFER_DISTANCE
+            # (station_cd, from_line, to_line)을 사용하여 정확한 환승 거리 조회
+            walking_distance = raptor_instance._get_transfer_distance_cached(
+                station_cd, from_line, to_line
             )
+
             walking_time = (
                 anp_calculator.calculate_transfer_walking_time(
                     walking_distance, disability_type
@@ -360,12 +405,22 @@ def _create_transfer_details(
                 / 60.0
             )  # 초 -> 분
 
-            # 선호 편의시설 유무 확인
-            facilities = station_info.get("facilities", {})
-            preferred_facilities = {
-                facility: facilities.get(facility, False)
-                for facility in preferred_facility_list
-            }
+            # 편의 시설 테이블 별도 구현 필요!!!
+            # 우선 transfer_station_convenience에 존재하지 않으면 없다고 판단
+            # 추후 db table 구축 후 수정하기!!!
+            facilities_data = raptor_instance.convenience_scores.get(station_cd)
+
+            # station_cd가 존재한다면 -> 있다고 판단
+            if facilities_data:
+                preferred_facilities = {
+                    facility: facilities_data.get(facility, False)
+                    for facility in preferred_facility_list
+                }
+            else:
+                # station_cd가 존재하지 않는다면 -> 없다고 판단
+                preferred_facilities = {
+                    facility: False for facility in preferred_facility_list
+                }
 
             transfer_details.append(
                 TransferStationDetail(
@@ -379,13 +434,13 @@ def _create_transfer_details(
             )
 
         except Exception as e:
-            logger.warning(f"환승역 정보 조회 실패 ({station_name}): {e}")
-            # 기본값으로 대체
+            logger.warning(f"환승역 정보 조회 실패 ({station_cd}): {e}")
+            # [수정] station_cd -> station_name 변환
             transfer_details.append(
                 TransferStationDetail(
-                    station_name=station_name,
+                    station_name=raptor_instance.get_station_name_from_cd(station_cd),
                     convenience_score=0.0,
-                    congestion_score=0.57,  # config의 default_value
+                    congestion_score=CONGESTION_CONFIG["default_value"],
                     walking_distance=DEFAULT_TRANSFER_DISTANCE,
                     walking_time=DEFAULT_TRANSFER_DISTANCE / walking_speed / 60.0,
                     preferred_facilities={
@@ -400,11 +455,12 @@ def _create_transfer_details(
 @app.get("/stations")
 async def get_stations():
     """전체 역 목록 조회"""
+    if not raptor_instance:
+        raise HTTPException(status_code=500, detail="서버가 초기화되지 않았습니다")
     try:
-        stations = get_all_stations()
-        station_names = list(set(s["name"] for s in stations))
+        # raptor 인스턴스에 사전 연산된 station_name_to_cds 맵의 키를 사용
+        station_names = list(raptor_instance.station_name_to_cds.keys())
         station_names.sort()
-
         return {"total": len(station_names), "stations": station_names}
     except Exception as e:
         logger.error(f"역 목록 조회 실패: {e}")
@@ -413,30 +469,29 @@ async def get_stations():
 
 @app.get("/station/{station_name}")
 async def get_station_detail(station_name: str):
-    """특정 역 상세 정보 조회"""
+    """특정 역 상세 정보 조회 (해당 이름을 가진 모든 station_cd 반환)"""
+    if not raptor_instance:
+        raise HTTPException(status_code=500, detail="서버가 초기화되지 않았습니다")
     try:
-        stations = get_all_stations()
-
-        # 해당 역 찾기
-        station_info = None
-        for station in stations:
-            if station["name"] == station_name:
-                station_info = station
-                break
-
-        if not station_info:
+        # raptor 인스턴스의 맵을 조회
+        station_cds = raptor_instance.station_name_to_cds.get(station_name)
+        if not station_cds:
             raise HTTPException(
                 status_code=404, detail=f"역 '{station_name}'을 찾을 수 없습니다"
             )
 
-        # 상세 정보 조회
-        detailed_info = get_station_info(station_info["station_id"])
+        # DB에서 각 station_cd의 상세 정보 조회
+        station_details = []
+        for cd in station_cds:
+            # get_station_by_code는 DB를 조회함
+            info = get_station_by_code(cd)
+            if info:
+                station_details.append(info)
 
         return {
             "name": station_name,
-            "station_id": station_info["station_id"],
-            "line": station_info["line"],
-            "details": detailed_info,
+            "count": len(station_details),
+            "details": station_details,
         }
 
     except HTTPException:
@@ -495,4 +550,4 @@ async def get_anp_weights(disability_type: str):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

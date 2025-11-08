@@ -1,4 +1,4 @@
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Tuple
 from dataclasses import dataclass, field
 
 
@@ -14,9 +14,9 @@ class Label:
     congestion_score: float  # 평균 혼잡도 점수 (0~1+)
     route: List[str] = field(default_factory=list)  # 경로를 지나가는 역의 정보
     lines: List[str] = field(default_factory=list)  # 역들의 호선 정보 -> 환승 횟수 계산
-    transfer_stations: Set[str] = field(
-        default_factory=set
-    )  # 환승역 별 안내를 위한 환승역 리스트
+    transfer_context: List[Tuple[str, str, str]] = field(
+        default_factory=list
+    )  # 환승 상세정보 제공을 위한 (station_cd, from_line, to_line)
     created_round: int = 0  # 라벨이 생성된 라운드
 
     def dominates(self, other: "Label") -> bool:
@@ -91,8 +91,11 @@ class Label:
         """라벨 동등성 검사 (경로 비교)"""
         if not isinstance(other, Label):
             return False
-        return self.route == other.route
+        # 환승 컨텍스트도 동등 비교에 포함 -> 기준 강화
+        return self.route == other.route and tuple(self.transfer_context) == tuple(
+            other.transfer_context
+        )
 
     def __hash__(self) -> int:
         """해시 함수 (Set에서 사용)"""
-        return hash(tuple(self.route))
+        return hash((tuple(self.route), tuple(self.transfer_context)))

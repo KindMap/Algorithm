@@ -307,6 +307,10 @@ class McRaptor:
         transfer_time = 0.0
 
         if is_transfer:  # 환승이 발생할 때에만 계산!!!
+            # transfer_context 저장을 위해 from_line, to_line 변수화
+            from_line = prev_label.lines[-1]
+            to_line = line
+
             # 환승 거리 조회 <- 캐싱 적용
             transfer_distance = self._get_transfer_distance_cached(from_station_cd, prev_label.lines[-1], line)
 
@@ -347,9 +351,10 @@ class McRaptor:
             prev_label.congestion_score * len(prev_label.route) + segment_congestion
         ) / (len(prev_label.route) + 1)
 
-        new_transfer_stations = prev_label.transfer_stations.copy()
+        # transfer_context 리스트를 복사하고 새로운 환승 정보 추가
+        new_transfer_context = prev_label.transfer_context.copy()
         if is_transfer:
-            new_transfer_stations.add(from_station_cd)
+            new_transfer_context.append((from_station_cd, from_line, to_line))
 
         return Label(
             arrival_time=prev_label.arrival_time + travel_time + transfer_time,
@@ -359,7 +364,7 @@ class McRaptor:
             congestion_score=avg_congestion,
             route=prev_label.route + [to_station_cd],
             lines=prev_label.lines + [line],
-            transfer_stations=new_transfer_stations,
+            transfer_context=new_transfer_context,
             created_round=created_round_num,
         )
 
@@ -475,6 +480,15 @@ class McRaptor:
             was_updated = True
 
         return new_frontier, was_updated
+    
+    # main.py용 헬퍼 함수
+    def get_station_info_from_cd(self, station_cd: str) -> Dict:
+        """ station_cd로 self.stations에서 역 정보 조회 """
+        return self.stations.get(station_cd, {})
+
+    def get_station_name_from_cd(self, station_cd: str) -> str:
+        """ station_cd로 역 이름 조회 """
+        return self.stations.get(station_cd, {}).get("name", "Unknown Station")
 
     # def _is_pareto_optimal(
     #     self, new_label: Label, existing_labels: List[Label]
