@@ -50,7 +50,7 @@ class McRaptor:
 
         # 최적화를 위해 신규 캐시 추가
         self._transfer_distance_cache = {}
-        self._congestion_cache = {}
+        # self._congestion_cache = {} <- 요청별 캐싱과 중복되므로 삭제
         self._convenience_cache = {}
         self._facility_scores_cache = {}
 
@@ -184,7 +184,9 @@ class McRaptor:
             origin_line = origin_info.get("line")
 
             # 초기 혼잡도 (메모리 캐시 조회)
-            initial_congestion = self._get_congestion_cached(origin_cd, origin_line, "up", departure_time)
+            initial_congestion = self.anp_calculator.get_congestion_from_rds(
+                origin_cd, origin_line, "up", departure_time
+            )
             origin_convenience = self._calculate_convenience_score_cached(origin_cd)
 
             initial_label = Label(
@@ -345,8 +347,10 @@ class McRaptor:
         direction = self._determine_direction(from_station_cd, to_station_cd, line)
         current_time = self.departure_time + timedelta(minutes=prev_label.arrival_time)
 
-        # 메모리 캐시를 조회하는 _get_congestion_cached 호출
-        segment_congestion = self._get_congestion_cached(to_station_cd, line, direction, current_time)
+        # 메모리 캐시를 조회하는 anp_calculator의 get_congestion_from_rds 사용
+        segment_congestion = self.anp_calculator.get_congestion_from_rds(
+            to_station_cd, line, direction, current_time
+        )
         avg_congestion = (
             prev_label.congestion_score * len(prev_label.route) + segment_congestion
         ) / (len(prev_label.route) + 1)
@@ -381,19 +385,6 @@ class McRaptor:
         if cache_key not in self._transfer_distance_cache:
             self._transfer_distance_cache[cache_key] = get_transfer_distance(station_cd, from_line, to_line)
         return self._transfer_distance_cache[cache_key]
-    
-    def _get_congestion_cached(self, station_cd: str, line: str, direction: str, current_time: datetime) -> float:
-        """ 혼잡도 조회 <- 요청별 캐싱 """
-        # 캐시 키를 30분 단위로 통일
-        time_key = current_time.replace(minute=(current_time.minute // 30) * 30, second=0, microsecond=0)
-        cache_key = (station_cd, line, direction, time_key)
-        
-        if cache_key not in self._congestion_cache:
-            # ANP 계산기에 내장된 사전 적재한 메모리 캐시를 조회
-            self._congestion_cache[cache_key] = self.anp_calculator.get_congestion_from_rds(
-                station_cd, line, direction, current_time
-            )
-        return self._congestion_cache[cache_key]
     
     def _get_facility_scores_cached(self, station_cd: str) -> Dict[str, float]:
         """ 편의시설 점수 조회 <- 요청별 캐싱 """
@@ -489,108 +480,3 @@ class McRaptor:
     def get_station_name_from_cd(self, station_cd: str) -> str:
         """ station_cd로 역 이름 조회 """
         return self.stations.get(station_cd, {}).get("name", "Unknown Station")
-
-    # def _is_pareto_optimal(
-    #     self, new_label: Label, existing_labels: List[Label]
-    # ) -> bool:
-    #     """파레토 최적성 검사"""
-    #     for existing in existing_labels:
-    #         if existing.dominates(new_label):
-    #             return False
-    #     return True
-
-    # 최적화를 위한 캐싱 메서드 추가
-    # def _get_transfer_distance_cached(
-    #     self, station_cd: str, from_line: str, to_line: str
-    # ) -> float:
-    #     """환승 거리 조회 (캐싱)"""
-    #     cache_key = (station_cd, from_line, to_line)
-
-    #     if cache_key not in self._transfer_distance_cache:
-    #         distance = get_transfer_distance(station_cd, from_line, to_line)
-    #         self._transfer_distance_cache[cache_key] = distance
-    #         logger.debug(
-    #             f"캐시 미스: 환승거리 {station_cd} {from_line}→{to_line} = {distance}m"
-    #         )
-    #     else:
-    #         logger.debug(f"캐시 히트: 환승거리 {cache_key}")
-
-    #     return self._transfer_distance_cache[cache_key]
-
-    # def _get_congestion_cached(
-    #     self, station_cd: str, line: str, direction: str, current_time: datetime
-    # ) -> float:
-    #     """혼잡도 조회 (캐싱) - 시간은 시간대로만 캐싱"""
-    #     # 분 단위 무시하고 시간대만 사용 -> 캐싱 성능을 확인하면서 추후 조정하기
-    #     time_key = current_time.replace(minute=0, second=0, microsecond=0)
-    #     cache_key = (station_cd, line, direction, time_key)
-
-    #     if cache_key not in self._congestion_cache:
-    #         congestion = self.anp_calculator.get_congestion_from_rds(
-    #             station_cd, line, direction, current_time
-    #         )
-    #         self._congestion_cache[cache_key] = congestion
-    #         logger.debug(
-    #             f"캐시 미스: 혼잡도 {station_cd} {line} {direction} = {congestion}"
-    #         )
-    #     else:
-    #         logger.debug(f"캐시 히트: 혼잡도 {cache_key}")
-
-    #     return self._congestion_cache[cache_key]
-
-    # def _get_facility_scores_cached(self, station_name: str) -> Dict[str, float]:
-    #     """역의 시설별 편의도 점수 조회 (캐싱)"""
-    #     cache_key = (station_name, self.disability_type)
-
-    #     if cache_key not in self._facility_scores_cache:
-    #         scores = self._get_facility_scores(station_name)  # 기존 메서드 호출
-    #         self._facility_scores_cache[cache_key] = scores
-    #         logger.debug(f"캐시 미스: 편의시설 {station_name}")
-    #     else:
-    #         logger.debug(f"캐시 히트: 편의시설 {cache_key}")
-
-    #     return self._facility_scores_cache[cache_key]
-
-    # def _calculate_convenience_score_cached(self, station_name: str) -> float:
-    #     """역 편의성 점수 계산 (캐싱)"""
-    #     cache_key = (station_name, self.disability_type)
-
-    #     if cache_key not in self._convenience_cache:
-    #         facility_scores = self._get_facility_scores_cached(station_name)
-
-    #         if not facility_scores:
-    #             score = 2.5  # 기본값
-    #         else:
-    #             score = self.anp_calculator.calculate_convenience_score(
-    #                 self.disability_type, facility_scores
-    #             )
-
-    #         self._convenience_cache[cache_key] = score
-    #         logger.debug(f"캐시 미스: 편의도 {station_name} = {score}")
-    #     else:
-    #         logger.debug(f"캐시 히트: 편의도 {cache_key}")
-
-    #     return self._convenience_cache[cache_key]
-    
-    # def _get_station_order(self, station_name: str, line: str) -> Optional[int]:
-    #     """역의 section_order 조회 (캐싱)"""
-    #     cache_key = (station_name, line)
-        
-    #     if cache_key in self._station_order_cache:
-    #         return self._station_order_cache[cache_key]
-        
-    #     for section in self.sections:
-    #         if section["line"] == line:
-    #             if section["up_station_name"] == station_name:
-    #                 order = section["section_order"]
-    #                 self._station_order_cache[cache_key] = order
-    #                 return order
-    #             elif section["down_station_name"] == station_name:
-    #                 # down_station의 order는 section_order보다 1 큼
-    #                 order = section["section_order"] + 1
-    #                 self._station_order_cache[cache_key] = order
-    #                 return order
-        
-    #     return None
-    
-
