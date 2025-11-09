@@ -283,20 +283,52 @@ class McRaptor:
                         if label.transfers + (1 if is_transfer else 0) > round_num:
                             continue
 
-                        directions_map = self._get_stations_on_line(line_start_cd, line)
-
-                        # 탐색할 방향 키 리스트 정의
-                        direction_keys = []
+                        # 현재 병렬로 탐색되는 환승/직진 로직을 분리
                         if is_transfer:
-                            # 환승 시 : 양방향 모두 탐색
-                            if line in CIRCULAR_LINES:
-                                direction_keys = ["in", "out"]
-                            else:
-                                direction_keys = ["up", "down"]
+                            # 환승 로직!!! => 직전 역은 현재 역
+                            new_label = self._create_new_label(
+                                label,
+                                line_start_cd,
+                                station_cd,
+                                line_start_cd,
+                                line,
+                                round_num,
+                                0.0,  # 같은 역에서 환승 -> 지하철로 인한 이동 시간은 0 -> 추후 환승 거리를 통해 보행 시간이 계산됨
+                            )
+
+                            existing_labels = labels[line_start_cd]
+                            new_frontier, updated = self._update_pareto_frontier(
+                                new_label, existing_labels
+                            )
+
+                            if updated:
+                                labels[line_start_cd] = new_frontier
+                                # 환승한 노선의 탐색은 다음 라운드에서 진행돼야 하므로
+                                # 환승 노드만!!! 마킹
+                                Q_next_round.add(line_start_cd)
                         else:
                             # 환승이 아닐 경우 현재 라벨의 방향을 판별
-                            if len(label.route) < 2:
-                                # 이론상 발생하지 않는 경우이지만 예방 차원에서 양방향 처리 보장
+                            # 직진 로직!!!
+                            directions_map = self._get_stations_on_line(
+                                line_start_cd, line
+                            )
+
+                            # U턴 방지 방향 설정
+                            direction_keys = []
+
+                            # 환승 직후일 경우 => 양방향 탐색 가능해야 함
+                            is_just_transferred = False
+                            if len(label.route) >= 2:
+                                # lines 리스트는 route와 길이가 같을 것이므로
+                                if (
+                                    len(label.lines) >= 2
+                                    and label.lines[-1] != label.lines[-2]
+                                ):
+                                    is_just_transferred = True
+
+                            if len(label.route) < 2 or is_just_transferred:
+                                # 출발역 또는 환승 직후인 경우
+                                # 양방향 탐색 허용
                                 direction_keys = (
                                     ["up", "down"]
                                     if line not in CIRCULAR_LINES
@@ -306,11 +338,9 @@ class McRaptor:
                                 # 직전 역과 현재 역으로 방향을 결정
                                 from_cd = label.route[-2]
                                 to_cd = label.route[-1]
-
                                 current_direction = self._determine_direction(
                                     from_cd, to_cd, line
                                 )
-
                                 direction_keys = [current_direction]
 
                         # 상반되는 방향을 별도로 순회
@@ -323,9 +353,7 @@ class McRaptor:
                             cumulative_travel_time = 0.0
 
                             # 직전 역 station_cd 추적 <- 방향 결정
-                            previous_station_cd = (
-                                line_start_cd if is_transfer else station_cd
-                            )
+                            previous_station_cd = station_cd  # line_start_cd == station_cd <- 직진 로직이므로
 
                             # 해당 단일 방향으로만
                             for next_station_cd in directions_to_explore:
@@ -340,16 +368,11 @@ class McRaptor:
                                 )
                                 cumulative_travel_time += segment_travel_time
 
-                                # 환승/탑승이 일어난 역의 station_cd
-                                start_cd_for_label = (
-                                    line_start_cd if is_transfer else station_cd
-                                )
-
                                 # !!!!!!!병렬 전파 적용!!!!!!!
                                 # 모든 라벨은 탑승 라벨을 기준으로 병렬 생성
                                 new_label = self._create_new_label(
                                     label,  # 탑승 라벨 <- 기준점
-                                    start_cd_for_label,  # 탐승한 역 <- 환승 계산
+                                    station_cd,  # 탐승한 역 <- 환승 계산
                                     previous_station_cd,  # 직전 역 <- 방향 계산
                                     next_station_cd,  # 도착할 역
                                     line,
@@ -372,13 +395,18 @@ class McRaptor:
                 break
             Q = Q_next_round  # 다음 라운드 대상 갱신
 
-        final_routes = []
-        logger.info(f"최종 경로 수: {len(final_routes)}개")
+        # 목적지가 포함된 라벨만 집계
+        candidates = []
         for dest_cd in destination_cd_set:
-            logger.info(
-                f"Round {round_num} 후 목적지 {dest_cd}: {len(labels.get(dest_cd, []))}개 라벨"
+            candidates.extend(
+                [label for label in labels.get(dest_cd, []) if dest_cd in label.route]
             )
-            final_routes.extend(labels.get(dest_cd, []))
+        # 목적지에서 종료하는 라벨만 취합
+        final_routes = []
+        final_routes = [
+            label for label in candidates if label.route[-1] in destination_cd_set
+        ]
+        logger.info(f"최종 경로 수: {len(final_routes)}개")
         return list(set(final_routes))
 
     def rank_routes(

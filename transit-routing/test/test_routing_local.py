@@ -113,10 +113,12 @@ def test_routing_direct():
                             )
 
                         logger.info(
-                            f"  [{rank}위] {route.arrival_time:.1f}분 | "
-                            f"환승{route.transfers}회 | "
-                            f"편의{route.convenience_score:.1f} | "
-                            f"혼잡{route.congestion_score:.2f}"
+                        f"  [{rank}위] {route.arrival_time:.1f}분 | "
+                        f"환승{route.transfers}회 | "
+                        # [!!! 수정 !!!] route.convenience_score -> route.avg_convenience
+                        f"편의{route.avg_convenience:.1f} | " 
+                        # [!!! 수정 !!!] route.congestion_score -> route.avg_congestion
+                        f"혼잡{route.avg_congestion:.2f}"
                         )
                         logger.info(f"       {' → '.join(route_names)}")
                         if transfer_names:

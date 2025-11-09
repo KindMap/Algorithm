@@ -116,7 +116,7 @@ class Label:
         norm_convenience = 1.0 - (self.avg_convenience / 5.0)
 
         # 혼잡도: 이미 0-1 범위
-        norm_congestion = min(self.congestion_score, 1.0)
+        norm_congestion = min(self.avg_congestion, 1.0)
 
         # 가중 합산
         score = (
