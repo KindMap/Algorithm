@@ -61,8 +61,8 @@ class Label:
 
         # 임계값 정의
         # 추후 테스트하면서 조정하기
-        TIME_EPSILON = 1.0  # 1분 이내 시간 차이 => 동일하다고 판단
-        SCORE_EPSILON = 0.1  # 0.1점 이내의 점수 차이 => 동일하다고 판단
+        TIME_EPSILON = 5.0  # 1분 이내 시간 차이 => 동일하다고 판단
+        SCORE_EPSILON = 0.25  # 0.1점 이내의 점수 차이 => 동일하다고 판단
 
         # better or equal 확인
 
@@ -71,7 +71,10 @@ class Label:
         transfers_be = (
             self.transfers <= other.transfers
         )  # 횟수는 정수이고 숫자간 차이가 매우 유효하므로 임계값 적용X
-        max_diff_be = self.max_transfer_difficulty <= other.max_transfer_difficulty + SCORE_EPSILON
+        max_diff_be = (
+            self.max_transfer_difficulty
+            <= other.max_transfer_difficulty + SCORE_EPSILON
+        )
         avg_cong_be = self.avg_congestion <= other.avg_congestion + SCORE_EPSILON
 
         # 최대화해야 하는 기준-편의도
@@ -85,7 +88,9 @@ class Label:
         # 최소화 기준
         time_sb = self.arrival_time < other.arrival_time - TIME_EPSILON
         transfers_sb = self.transfers < other.transfers
-        max_diff_sb = self.max_transfer_difficulty < other.max_transfer_difficulty - SCORE_EPSILON
+        max_diff_sb = (
+            self.max_transfer_difficulty < other.max_transfer_difficulty - SCORE_EPSILON
+        )
         avg_cong_sb = self.avg_congestion < other.avg_congestion - SCORE_EPSILON
 
         # 최대화 기준
