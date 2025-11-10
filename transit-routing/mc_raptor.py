@@ -1,13 +1,16 @@
 # mc_raptor <- 최적화 적용한 라벨에 맞추어 수정, 역추적 로직 사용
 # 환승 직후, 출발역 => 양방향 탐색 진행
 
-import heapq
+# import heapq
 from typing import List, Dict, Tuple, Optional, Set
 from label import Label
 from database import get_db_cursor
 from distance_calculator import DistanceCalculator
 from anp_weights import ANPWeightCalculator
 from config import CIRCULAR_LINES, DEFAULT_TRANSFER_DISTANCE, WALKING_SPEED
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class McRaptor:
@@ -42,7 +45,7 @@ class McRaptor:
     def _load_line_data(self):
         """노선 데이터 로드"""
         query = """
-            SELECT line, station_cd, section_order
+            SELECT line, up_station_name, down_station_name, section_order
             FROM subway_section
             ORDER BY line, section_order
         """
@@ -50,25 +53,54 @@ class McRaptor:
         self.line_stations = {}
         with get_db_cursor() as cursor:
             cursor.execute(query)
+
+            current_line = None
+            up_sequence = []
+
             for row in cursor.fetchall():
                 line = row["line"]
-                station_cd = row["station_cd"]
 
-                if line not in self.line_stations:
-                    self.line_stations[line] = {"up": [], "down": []}
+                if line != current_line:
+                    if current_line and up_sequence:
+                        self.line_stations[current_line] = {
+                            "up": up_sequence,
+                            "down": up_sequence[::-1],
+                        }
+                    current_line = line
+                    up_sequence = []
 
-                # section_order 기준으로 방향 결정
-                self.line_stations[line]["up"].append(station_cd)
+                # station_cd 조회
+                up_station_cd = self._get_station_cd_by_name(
+                    row["up_station_name"], line
+                )
+                down_station_cd = self._get_station_cd_by_name(
+                    row["down_station_name"], line
+                )
 
-            # down은 up의 역순 <- 도착역으로 설정하는 것보다 훨씬 간단
-            for line in self.line_stations:
-                self.line_stations[line]["down"] = self.line_stations[line]["up"][::-1]
+                if up_station_cd and up_station_cd not in up_sequence:
+                    up_sequence.append(up_station_cd)
+                if down_station_cd and down_station_cd not in up_sequence:
+                    up_sequence.append(down_station_cd)
+
+            # 마지막 노선 처리
+            if current_line and up_sequence:
+                self.line_stations[current_line] = {
+                    "up": up_sequence,
+                    "down": up_sequence[::-1],
+                }
+
+    def _get_station_cd_by_name(self, station_name: str, line: str) -> Optional[str]:
+        """역 이름과 노선으로 station_cd 조회"""
+        for station_cd, info in self.stations.items():
+            if info["name"] == station_name and info["line"] == line:
+                return station_cd
+            return None
 
     def _load_transfer_data(self):
         """환승데이터 로드"""
         query = """
-        SELECT station_cd, line_num, transfer_line, distance, time
-        FROM transfer_distance_time
+            SELECT station_cd, line_num, transfer_line, distance, time
+            FROM transfer_distance_time
         """
 
         self.transfers = {}
@@ -122,13 +154,17 @@ class McRaptor:
 
         distance = self.distance_calculator.haversine(coord1, coord2)
 
-        avg_speed = 33.0  # 서울 지하철 평균 속도(표정속도 기준)
+        avg_speed = 33.0  # 서울 지하철 평균 속도(표정속도 기준) km/h
         travel_time = (distance / 1000 / avg_speed) * 60
 
         return max(travel_time, 1.0)
 
     def find_routes(
-        self, origin_cd: str, destination_cd_set: Set[str], max_rounds: int = 5
+        self,
+        origin_cd: str,
+        destination_cd_set: Set[str],
+        disability_type: str = "PHY",
+        max_rounds: int = 5,
     ) -> List[Label]:
         """경로 탐색(경량화한 Label, 탐색 방향 로직 강화 적용)"""
         origin_lines = self._get_available_lines(origin_cd)
@@ -193,6 +229,7 @@ class McRaptor:
                             0.0,
                             "",
                             True,
+                            disability_type,
                         )
 
                         state_key = (line_start_cd, line, new_label.transfers)
@@ -264,6 +301,7 @@ class McRaptor:
                                     cumulative_travel_time,
                                     direction,
                                     False,
+                                    disability_type,
                                 )
 
                                 state_key = (next_station_cd, line, new_label.transfers)
@@ -300,10 +338,11 @@ class McRaptor:
         cumulative_travel_time: float,
         direction: str,
         is_first_move: bool,
+        disability_type: str,
     ) -> Label:
         """새 라벨 생성"""
 
-        from config import DEFAULT_TRANSFER_DISTANCE, WALKING_SPEED
+        from config import WALKING_SPEED
 
         is_transfer = prev_label.current_line != line
 
@@ -325,29 +364,40 @@ class McRaptor:
                 transfer_distance = transfer_data.get(
                     "transfer_distance", DEFAULT_TRANSFER_DISTANCE
                 )
-
-                # ANP 환승 난이도 계산
-                difficulty = self.anp_calculator.calculate_transfer_difficulty(
-                    transfer_distance, from_line, to_line
-                )
-                new_max_difficulty = max(new_max_difficulty, difficulty)
             else:
                 transfer_distance = DEFAULT_TRANSFER_DISTANCE
 
-            # config에서 보행 속도 조회
-            walking_speed = WALKING_SPEED.get(self.current_disability_type)
-            # 환승 시간 계산: 거리(m) / 속도(m/min) = 시간(min)
-            transfer_time = transfer_distance / walking_speed
+            # 환승역 시설 점수 조회
+            facility_scores = self._get_facility_scores(
+                from_station_cd, disability_type
+            )
+
+            # ANP 환승 난이도 계산
+            difficulty = self.anp_calculator.calculate_transfer_difficulty(
+                transfer_distance, facility_scores, disability_type
+            )
+            new_max_difficulty = max(new_max_difficulty, difficulty)
+
+            # 보행 속도로 환승 시간 계산 (m/s → m/min 변환)
+            walking_speed_m_per_s = WALKING_SPEED.get(disability_type, 0.98)
+            walking_speed_m_per_min = walking_speed_m_per_s * 60
+            transfer_time = transfer_distance / walking_speed_m_per_min
 
         # visited_stations 갱신
         new_visited = prev_label.visited_stations | {to_station_cd}
 
-        # 편의성 실제 데이터 조회
-        convenience = self.convenience_scores.get(to_station_cd, 5.0)
+        # ANP 편의성 계산 (anp_calculator 사용)
+        to_station_facility_scores = self._get_facility_scores(
+            to_station_cd, disability_type
+        )
+        convenience = self.anp_calculator.calculate_convenience_score(
+            disability_type, to_station_facility_scores
+        )
 
-        # 혼잡도 실제 데이터 조회
-        congestion_key = (to_station_cd, line)
-        congestion = self.congestion_levels.get(congestion_key, 5.0)
+        # ANP 혼잡도 계산
+        congestion = self.anp_calculator.calculate_route_congestion_score(
+            to_station_cd, line
+        )
 
         new_convenience_sum = prev_label.convenience_sum + convenience
         new_congestion_sum = prev_label.congestion_sum + congestion
@@ -379,7 +429,8 @@ class McRaptor:
 
         scored_routes = []
         for route in routes:
-            score = route.calculate_weighted_score(anp_weights)
+            # ANP 계산기로 점수 계산
+            score = self.anp_calculator.calculate_route_score(route, anp_weights)
             scored_routes.append((route, score))
 
         scored_routes.sort(key=lambda x: x[1])
@@ -389,7 +440,7 @@ class McRaptor:
         seen_patterns = set()
 
         for route, score in scored_routes:
-            transfer_context = route.reconstruct_transfer_info()
+            transfer_context = route.reconstruct_transfer_context()
             pattern = tuple(transfer_context)
 
             if pattern not in seen_patterns:
