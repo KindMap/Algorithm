@@ -154,7 +154,7 @@ class Label:
         score = (
             weights.get("travel_time", 0.2) * norm_time
             + weights.get("transfers", 0.2)
-            * norm_transfers  # [수정] 'transfer_count' -> 'transfers'
+            * norm_transfers  
             + weights.get("transfer_difficulty", 0.2) * norm_difficulty
             + weights.get("convenience", 0.2) * norm_convenience
             + weights.get("congestion", 0.2) * norm_congestion

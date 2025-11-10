@@ -133,7 +133,7 @@ def get_stations_by_codes(station_cds: List[str]) -> List[Dict]:
     """
 
     with get_db_cursor() as cursor:
-        cursor.execute(query, {"station_cds": station_cds})
+        cursor.execute(query, {"station_cd": station_cds})
         return cursor.fetchall()
 
 

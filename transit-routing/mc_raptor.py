@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from label import Label
-from database import get_db_cursor, get_transfer_distance
+from database import get_db_cursor, get_transfer_distance, get_all_transfer_station_conv_scores
 from distance_calculator import DistanceCalculator
 from anp_weights import ANPWeightCalculator
 from config import CIRCULAR_LINES, DEFAULT_TRANSFER_DISTANCE, WALKING_SPEED
@@ -18,11 +18,15 @@ class McRaptor:
     def __init__(self):
         self.distance_calculator = DistanceCalculator()
         self.anp_calculator = ANPWeightCalculator()
+        
+        self.transfers = {} # (station_cd, from_line, to_line) -> {transfer_distance, facility_scores}
+
 
         # context manager 사용
         self._load_station_data()
         self._load_line_data()
-        self._load_transfer_data()
+
+        self._load_transfers()
 
         # ANP 계산에 사용하는 헬퍼
         self.disability_type = "PHY"
@@ -125,63 +129,70 @@ class McRaptor:
         # 루프가 끝난 후 None 반환
         return None
 
-    def _load_transfer_data(self):
-        """환승 데이터 로드 (편의시설 포함)"""
-        # 편의시설 테이블(transfer_station_convenience)과 조인
-        query = """
-            SELECT 
-                t.station_cd, t.line_num, t.transfer_line, t.distance, t.time,
-                tsc.elevator_phy, tsc.escalator_phy, tsc.transfer_walk_phy, tsc.other_facil_phy, tsc.staff_help_phy,
-                tsc.elevator_vis, tsc.escalator_vis, tsc.transfer_walk_vis, tsc.other_facil_vis, tsc.staff_help_vis,
-                tsc.elevator_aud, tsc.escalator_aud, tsc.transfer_walk_aud, tsc.other_facil_aud, tsc.staff_help_aud,
-                tsc.elevator_eld, tsc.escalator_eld, tsc.transfer_walk_eld, tsc.other_facil_eld, tsc.staff_help_eld
-            FROM transfer_distance_time t
-            LEFT JOIN transfer_station_convenience tsc 
-                ON t.station_cd = tsc.station_cd
-        """
-        self.transfers = {}
-        with get_db_cursor() as cursor:
-            cursor.execute(query)
-            for row in cursor.fetchall():
-                key = (row["station_cd"], row["line_num"], row["transfer_line"])
+    def _load_transfers(self):
+        """환승 데이터 통합 로딩 (조합 키 => 거리 + 편의시설 점수)"""
 
-                # 편의시설 점수(facility_scores)도 함께 저장
-                self.transfers[key] = {
-                    "transfer_time": row["time"]
-                    or 3.0,  # 유형별 보행 속도를 사용하여 직접 계산
-                    "transfer_distance": row["distance"] or DEFAULT_TRANSFER_DISTANCE,
-                    "facility_scores": {
-                        "PHY": {
-                            "elevator": row["elevator_phy"],
-                            "escalator": row["escalator_phy"],
-                            "transfer_walk": row["transfer_walk_phy"],
-                            "other_facil": row["other_facil_phy"],
-                            "staff_help": row["staff_help_phy"],
-                        },
-                        "VIS": {
-                            "elevator": row["elevator_vis"],
-                            "escalator": row["escalator_vis"],
-                            "transfer_walk": row["transfer_walk_vis"],
-                            "other_facil": row["other_facil_vis"],
-                            "staff_help": row["staff_help_vis"],
-                        },
-                        "AUD": {
-                            "elevator": row["elevator_aud"],
-                            "escalator": row["escalator_aud"],
-                            "transfer_walk": row["transfer_walk_aud"],
-                            "other_facil": row["other_facil_aud"],
-                            "staff_help": row["staff_help_aud"],
-                        },
-                        "ELD": {
-                            "elevator": row["elevator_eld"],
-                            "escalator": row["escalator_eld"],
-                            "transfer_walk": row["transfer_walk_eld"],
-                            "other_facil": row["other_facil_eld"],
-                            "staff_help": row["staff_help_eld"],
-                        },
-                    },
+        distance_query = """
+            SELECT station_cd, line_num, transfer_line, distance
+            FROM transfer_distance_time
+            ORDER BY station_cd, line_num, transfer_line
+        """
+        with get_db_cursor() as cursor:
+            cursor.execute(distance_query)
+            distance_rows = cursor.fetchall()
+
+        # transfers dictionary 구축
+        for row in distance_rows:
+            transfer_key = (row['station_cd'], row['line_num'], row['transfer_line'])
+            self.transfers[transfer_key] = {
+                'transfer_distance': float(row['distance']),
+                'facility_scores': {}
+            }
+
+        # 편의시설 점수 로딩 <- database의 함수 사용
+        convenience_data = get_all_transfer_station_conv_scores()
+
+        convenience_by_station = {}
+        for conv_row in convenience_data:
+            station_cd = conv_row['station_cd']
+            convenience_by_station[station_cd] = {
+                'PHY': {
+                    'elevator': conv_row.get('elevator_phy'),
+                    'escalator': conv_row.get('escalator_phy'),
+                    'transfer_walk': conv_row.get('transfer_walk_phy'),
+                    'other_facil': conv_row.get('other_facil_phy'),
+                    'staff_help': conv_row.get('staff_help_phy'),
+                },
+                'VIS': {
+                    'elevator': conv_row.get('elevator_vis'),
+                    'escalator': conv_row.get('escalator_vis'),
+                    'transfer_walk': conv_row.get('transfer_walk_vis'),
+                    'other_facil': conv_row.get('other_facil_vis'),
+                    'staff_help': conv_row.get('staff_help_vis'),
+                },
+                'AUD': {
+                    'elevator': conv_row.get('elevator_aud'),
+                    'escalator': conv_row.get('escalator_aud'),
+                    'transfer_walk': conv_row.get('transfer_walk_aud'),
+                    'other_facil': conv_row.get('other_facil_aud'),
+                    'staff_help': conv_row.get('staff_help_aud'),
+                },
+                'ELD': {  # 고령자 - 휠체어 데이터 재사용
+                    'elevator': conv_row.get('elevator_phy'),
+                    'escalator': conv_row.get('escalator_phy'),
+                    'transfer_walk': conv_row.get('transfer_walk_phy'),
+                    'other_facil': conv_row.get('other_facil_phy'),
+                    'staff_help': conv_row.get('staff_help_phy'),
                 }
-        logger.info(f"McRaptor: 환승 정보 {len(self.transfers)}개 로드")
+            }
+
+        # 각 역의 모든 환승에 편의시설 점수 적용
+        for transfer_key, transfer_data in self.transfers.items():
+            station_cd = transfer_key[0]
+            if station_cd in convenience_by_station:
+                transfer_data['facility_scores'] = convenience_by_station[station_cd]
+
+        logger.info(f"McRaptor: 환승 데이터 {len(self.transfers)}개 로드 완료")
 
     def _get_stations_on_line(self, station_cd: str, line: str) -> Dict[str, List[str]]:
         """노선의 역 목록 조회 (사전 구축된 맵)"""
@@ -300,7 +311,7 @@ class McRaptor:
                     line_start_cd = station_cd
                     is_transfer = current_line != line
 
-                    if label.tranfers + (1 if is_transfer else 0) > round_num:
+                    if label.transfers + (1 if is_transfer else 0) > round_num:
                         continue
 
                     if is_transfer:
@@ -393,13 +404,13 @@ class McRaptor:
 
             Q = Q_next_round  # 다음 라운드 마킹 갱신
 
-            # 최종 경로 필터링
-            final_routes = []
-            for (station_cd, line, transfers), state_labels in labels.items():
-                if station_cd in destination_cd_set:
-                    final_routes.extend(state_labels)
+        # 최종 경로 필터링
+        final_routes = []
+        for (station_cd, line, transfers), state_labels in labels.items():
+            if station_cd in destination_cd_set:
+                final_routes.extend(state_labels)
 
-            return list(set(final_routes))  # => set으로 중복 라벨 제거
+        return list(final_routes)  # => set으로 중복 라벨 제거
 
     def _create_new_label(
         self,
@@ -493,11 +504,11 @@ class McRaptor:
         """ANP 계산 헬퍼 함수"""
         facility_scores = {}
 
-        station_name = self.stations.get(station_cd, {}).get("transfer_name")
+        station_name = self.stations.get(station_cd, {}).get("station_name")
         if not station_name:
             # MVP에선 임시로 리스트에 존재하지 않을 경우 => 기본점수 2.5
             return 2.5  # 추후 편의 시설 db 추가로 구축한 다음, 로직 전체 수정하기
-
+        
         for (key_cd, from_line, to_line), data in self.transfers.items():
             if key_cd == station_cd:
                 ## 검토 필요
@@ -508,6 +519,10 @@ class McRaptor:
                     v is not None for v in facility_scores.values()
                 ):
                     break
+        if not facility_scores or not any(
+            v is not None for v in facility_scores.values()
+        ):
+            return 2.5
 
         return self.anp_calculator.calculate_convenience_score(
             disability_type, facility_scores
