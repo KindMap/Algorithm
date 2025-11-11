@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -12,5 +12,5 @@ COPY . .
 # 포트 노출
 EXPOSE 8001
 
-# 애플리케이션 실행
-CMD ["python", "main.py"]
+# FastAPI 애플리케이션 실행 (uvicorn)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
