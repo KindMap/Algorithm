@@ -12,7 +12,12 @@ from database import (
 )
 from distance_calculator import DistanceCalculator
 from anp_weights import ANPWeightCalculator
-from config import CIRCULAR_LINES, DEFAULT_TRANSFER_DISTANCE, WALKING_SPEED
+from config import (
+    CIRCULAR_LINES,
+    DEFAULT_TRANSFER_DISTANCE,
+    WALKING_SPEED,
+    EPSILON_CONFIG,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,6 +43,10 @@ class McRaptor:
         # ANP 계산에 사용하는 헬퍼
         self.disability_type = "PHY"
         self.departure_time = datetime.now()
+
+        # Bounded Pareto 설정
+        self.max_labels_per_state = 50
+        logger.info("epsilon-pruning activated")
 
     def _load_station_data(self):
         """지하철 역 데이터 로드"""
@@ -572,28 +581,59 @@ class McRaptor:
         """pareto frontier를 갱신
         새로운 라벨이 지배되지 않고 추가되었을 때 => True
         이는 단순한 추가뿐만 아니라, 기존 라벨 중 새라벨에 의해 지배되는 것들을 제거하는 것까지 포함
-        => 파레토 최적해를 만족하며 라벨 폭증을 막음 and pareto frontier는 비지배 집합이어야 함"""
+        => 파레토 최적해를 만족하며 라벨 폭증을 막음 and pareto frontier는 비지배 집합이어야 함
+        + epsilon-pruning + Bounded Pareto"""
+
+        # 유형별 epsilon 값 가져오기
+        epsilon = EPSILON_CONFIG.get(self.disability_type, 0.05)
+
+        # ANP 가중치 가져오기
+        anp_weights = self.anp_calculator.calculate_weights(self.disability_type)
 
         is_dominated_by_existing = False
         was_updated = False
 
+        # 엄격한 파레토 지배 체크
         for existing in existing_labels:
             if existing.dominates(new_label):
                 is_dominated_by_existing = True
-                break
+                return False
 
-        if is_dominated_by_existing:
-            return False
+        # epsilon-similarity check
+        similar_label_found = False
+        label_to_remove = None
 
-        # => new_label이 지배당하지 않음
-        # => 기존 라벨 중 new_label에게 지배당하는 것을 제거
+        for existing in existing_labels:
+            if new_label.epsilon_similar(existing, epsilon, anp_weights):
+                # 유사할 경우 -> 더 나은 것만 유지
+                new_score = new_label.calculate_weighted_score(anp_weights)
+                existing_score = existing.calculate_weighted_score(anp_weights)
+
+                if new_score >= existing_score:
+                    return False
+                else:
+                    label_to_remove = existing
+                    similar_label_found = True
+                    break
+
+        if similar_label_found and label_to_remove is not None:
+            existing_labels.remove(label_to_remove)
+
+        # 기존 라벨 중 new_label에게 지배당하는 것을 제거
         for i in range(len(existing_labels) - 1, -1, -1):
             if new_label.dominates(
                 existing_labels[i]
             ):  # new_label에 의해 지배당할 경우
                 existing_labels.pop(i)  # 기존 라벨 제거
 
+        # 새 라벨 추가
         existing_labels.append(new_label)
+
+        # Bounded Pareto
+        if len(existing_labels) > self.max_labels_per_state:
+            existing_labels.sort(key=lambda l: l.calculate_weighted_score(anp_weights))
+            del existing_labels[self.max_labels_per_state :]
+
         return True
 
     def rank_routes(

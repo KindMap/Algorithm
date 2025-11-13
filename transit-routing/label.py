@@ -183,10 +183,10 @@ class Label:
 
         # 편의도 => 해당 벡터는 epsilon 공간을 계산하기 위함이므로 반전하지 않음
         # [0, 5] => [0, 1]
-        norm_convenience = self.avg_convenience
+        norm_convenience = self.avg_convenience / 5.0
 
         # 혼잡도 : 1.3을 최대값으로 하여 정규화
-        norm_congestion = self.avg_congestion
+        norm_congestion = self.avg_congestion / 1.3
 
         return [
             norm_time,
