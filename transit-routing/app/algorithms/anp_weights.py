@@ -2,8 +2,8 @@ import numpy as np
 from typing import Dict, List, Optional
 import logging
 from datetime import datetime, timedelta
-from database import get_db_cursor
-from config import CIRCULAR_LINES, CONGESTION_CONFIG, WALKING_SPEED
+from app.db.database import get_db_cursor
+from app.core.config import CIRCULAR_LINES, CONGESTION_CONFIG, WALKING_SPEED
 
 logger = logging.getLogger(__name__)
 
