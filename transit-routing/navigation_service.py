@@ -1,6 +1,6 @@
 from distance_calculator import DistanceCalculator
 from database import get_all_stations
-from mc_raptor import McRAPTOR
+from mc_raptor import McRaptor
 from anp_weights import ANPWeightCalculator
 from redis_client import RedisSessionManager
 import logging
@@ -14,7 +14,7 @@ class NavigationService:
         self.redis_client = RedisSessionManager()
         self.distance_calc = DistanceCalculator()
         self.stations = get_all_stations()
-        self.raptor = McRAPTOR()
+        self.raptor = McRaptor()
         self.anp = ANPWeightCalculator()
 
     def calculate_route(self, start, destination, disability_type):
