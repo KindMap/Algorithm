@@ -1,6 +1,24 @@
 version: "3.8"
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: kindmap-redis
+    restart: unless-stopped
+    networks:
+      - kindmap-network
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
   fastapi:
     image: ${REPOSITORY_URI}:fastapi-${IMAGE_TAG:-latest}
     container_name: kindmap-fastapi
@@ -11,6 +29,9 @@ services:
       - "8001"
     networks:
       - kindmap-network
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -53,3 +74,7 @@ services:
 networks:
   kindmap-network:
     driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
