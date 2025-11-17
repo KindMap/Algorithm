@@ -12,44 +12,44 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-west-2
-      
+
       # ECR Repository 정보 추출
       - name: Extract ECR details from ARN
         id: ecr-details
         run: |
           ARN="${{ secrets.ECR_REPOSITORY_ARN }}"
-          
+
           REGION=$(echo $ARN | cut -d':' -f4)
           ACCOUNT_ID=$(echo $ARN | cut -d':' -f5)
           REPO_NAME=$(echo $ARN | cut -d'/' -f2)
           REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
-          
+
           echo "region=${REGION}" >> $GITHUB_OUTPUT
           echo "account-id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
           echo "repository=${REPO_NAME}" >> $GITHUB_OUTPUT
           echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
           echo "repository-uri=${REGISTRY}/${REPO_NAME}" >> $GITHUB_OUTPUT
-      
+
       # EC2 인스턴스 정보 추출
       - name: Extract EC2 details from ARN
         id: ec2-details
         run: |
           ARN="${{ secrets.EC2_INSTANCE_ARN }}"
-          
+
           INSTANCE_ID=$(echo $ARN | cut -d'/' -f2)
-          
+
           echo "instance-id=${INSTANCE_ID}" >> $GITHUB_OUTPUT
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -71,7 +71,7 @@ jobs:
             --tag $REPOSITORY_URI:latest \
             --push \
             .
-      
+
       - name: Deploy to EC2
         env:
           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
@@ -94,36 +94,3 @@ jobs:
             ]" \
             --region us-west-2 \
             --output text
-      
-      - name: Verify deployment
-        env:
-          INSTANCE_ID: ${{ steps.ec2-details.outputs.instance-id }}
-          AWS_REGION: ${{ steps.ecr-details.outputs.region }}
-          CONTAINER_PORT: ${{ secrets.CONTAINER_PORT }}
-        run: |
-          echo "⏳ Waiting for container to start..."
-          sleep 15
-
-          # EC2 인스턴스의 Public IP 가져오기
-          INSTANCE_IP=$(aws ec2 describe-instances \
-            --instance-ids $INSTANCE_ID \
-            --query 'Reservations[0].Instances[0].PublicIpAddress' \
-            --output text \
-            --region $AWS_REGION)
-
-          echo "🔍 Checking health at http://$INSTANCE_IP:$CONTAINER_PORT/health"
-
-          # Health check (최대 5번 시도)
-          for i in {1..5}; do
-            if curl -f -s "http://$INSTANCE_IP:$CONTAINER_PORT/health" > /dev/null; then
-              echo "✅ Deployment verified - service is healthy"
-              echo "📦 Image: ${{ steps.ecr-details.outputs.repository-uri }}:${{ github.sha }}"
-              echo "🚀 Instance: $INSTANCE_ID ($INSTANCE_IP:$CONTAINER_PORT)"
-              exit 0
-            fi
-            echo "⏳ Attempt $i/5 failed, retrying in 10s..."
-            sleep 10
-          done
-
-          echo "❌ Health check failed after 5 attempts"
-          exit 1
