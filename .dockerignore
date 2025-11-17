@@ -1,0 +1,89 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing
+test/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+.benchmarks/
+*.cover
+coverage.xml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+.claude/
+.serena/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# GitHub
+.github/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Documentation
+README.md
+*.md
+docs/
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Nginx (if not using in this deployment)
+transit-routing/nginx/
+
+# Scripts (if not needed in container)
+transit-routing/scripts/
+
+# Other
+*.bak
+*.tmp
+temp/
+tmp/

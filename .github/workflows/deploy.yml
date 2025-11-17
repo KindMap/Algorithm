@@ -50,20 +50,27 @@ jobs:
           
           echo "instance-id=${INSTANCE_ID}" >> $GITHUB_OUTPUT
       
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region ${{ steps.ecr-details.outputs.region }} | \
             docker login --username AWS --password-stdin ${{ steps.ecr-details.outputs.registry }}
-      
+
       - name: Build and push Docker image
         env:
           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $REPOSITORY_URI:$IMAGE_TAG ./transit-routing
-          docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:latest
-          docker push $REPOSITORY_URI:$IMAGE_TAG
-          docker push $REPOSITORY_URI:latest
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=registry,ref=$REPOSITORY_URI:latest \
+            --cache-to type=inline \
+            --tag $REPOSITORY_URI:$IMAGE_TAG \
+            --tag $REPOSITORY_URI:latest \
+            --push \
+            .
       
       - name: Deploy to EC2
         env:
@@ -89,7 +96,34 @@ jobs:
             --output text
       
       - name: Verify deployment
+        env:
+          INSTANCE_ID: ${{ steps.ec2-details.outputs.instance-id }}
+          AWS_REGION: ${{ steps.ecr-details.outputs.region }}
+          CONTAINER_PORT: ${{ secrets.CONTAINER_PORT }}
         run: |
-          echo "✅ Deployment completed"
-          echo "📦 Image: ${{ steps.ecr-details.outputs.repository-uri }}:${{ github.sha }}"
-          echo "🚀 Instance: ${{ steps.ec2-details.outputs.instance-id }}"
+          echo "⏳ Waiting for container to start..."
+          sleep 15
+
+          # EC2 인스턴스의 Public IP 가져오기
+          INSTANCE_IP=$(aws ec2 describe-instances \
+            --instance-ids $INSTANCE_ID \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text \
+            --region $AWS_REGION)
+
+          echo "🔍 Checking health at http://$INSTANCE_IP:$CONTAINER_PORT/health"
+
+          # Health check (최대 5번 시도)
+          for i in {1..5}; do
+            if curl -f -s "http://$INSTANCE_IP:$CONTAINER_PORT/health" > /dev/null; then
+              echo "✅ Deployment verified - service is healthy"
+              echo "📦 Image: ${{ steps.ecr-details.outputs.repository-uri }}:${{ github.sha }}"
+              echo "🚀 Instance: $INSTANCE_ID ($INSTANCE_IP:$CONTAINER_PORT)"
+              exit 0
+            fi
+            echo "⏳ Attempt $i/5 failed, retrying in 10s..."
+            sleep 10
+          done
+
+          echo "❌ Health check failed after 5 attempts"
+          exit 1
