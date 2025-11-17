@@ -4,15 +4,16 @@ from typing import List, Dict, Tuple, Optional, Set
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from label import Label
-from database import (
-    get_db_cursor,
-    get_transfer_distance,
-    get_all_transfer_station_conv_scores,
-)
-from distance_calculator import DistanceCalculator
-from anp_weights import ANPWeightCalculator
-from config import (
+from app.algorithms.label import Label
+
+# from app.db.database import (
+#     get_db_cursor,
+#     get_transfer_distance,
+#     get_all_transfer_station_conv_scores,
+# ) => 순환 참조 오류
+from .distance_calculator import DistanceCalculator
+from .anp_weights import ANPWeightCalculator
+from app.core.config import (
     CIRCULAR_LINES,
     DEFAULT_TRANSFER_DISTANCE,
     WALKING_SPEED,
@@ -50,6 +51,8 @@ class McRaptor:
 
     def _load_station_data(self):
         """지하철 역 데이터 로드"""
+        from app.db.database import get_db_cursor
+
         query = """
             SELECT station_cd, name, line, lat, lng
             FROM subway_station
@@ -70,6 +73,8 @@ class McRaptor:
 
     def _load_line_data(self):
         """노선 데이터 로드 (U턴 방지 방향성 구축)"""
+        from app.db.database import get_db_cursor
+
         query = """
             SELECT line, up_station_name, down_station_name, section_order
             FROM subway_section
@@ -147,6 +152,8 @@ class McRaptor:
 
     def _load_transfers(self):
         """환승 데이터 통합 로딩 (조합 키 => 거리 + 편의시설 점수)"""
+
+        from app.db.database import get_db_cursor, get_all_transfer_station_conv_scores
 
         distance_query = """
             SELECT station_cd, line_num, transfer_line, distance

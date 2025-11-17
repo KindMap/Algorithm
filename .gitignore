@@ -42,6 +42,8 @@ env/
 *.ipynb_checkpoints/
 
 # Testing
+test/
+pytest.ini
 .pytest_cache/
 .coverage
 htmlcov/
@@ -87,11 +89,17 @@ docs/_build/
 docs/_static/
 docs/_templates/
 
+# Nginx ssl
+ssl/
+
 # Backup files
 *.bak
 *.backup
 *.tmp
 
 # personal text
-.transit-routing/mc_raptor_algorithm_v_3.md
-*.gitignore
+.mc_raptor_algorithm_v_3.md
+
+# AI agent
+.claude
+.serena

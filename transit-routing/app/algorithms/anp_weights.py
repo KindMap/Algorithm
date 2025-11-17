@@ -2,8 +2,7 @@ import numpy as np
 from typing import Dict, List, Optional
 import logging
 from datetime import datetime, timedelta
-from database import get_db_cursor
-from config import CIRCULAR_LINES, CONGESTION_CONFIG, WALKING_SPEED
+from app.core.config import CIRCULAR_LINES, CONGESTION_CONFIG, WALKING_SPEED
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +154,8 @@ class ANPWeightCalculator:
     # 혼잡도 사전 적재를 위한 함수 추가
     def _load_all_congestion_from_db(self) -> Dict:
         """서버 시작 시 DB에서 모든 혼잡도 데이터를 로드 + 정규화"""
+        from app.db.database import get_db_cursor
+
         query = """
         SELECT * FROM subway_congestion
         """
@@ -337,6 +338,8 @@ class ANPWeightCalculator:
 
     def _load_facility_preferences_from_db(self) -> Dict[str, Dict[str, float]]:
         """DB에서 시설별 선호도 가중치 로드"""
+        from app.db.database import get_db_cursor
+
         query = """
         SELECT user_type, facility_type, weight
         FROM facility_preference

@@ -1,5 +1,5 @@
-from celery_app import celery
-from database import get_db_connection
+from app.tasks.celery_app import celery
+from app.db.database import get_db_connection
 import logging
 from datetime import datetime
 
@@ -43,7 +43,7 @@ def save_location_history(self, user_id, lat, lon, accuracy, route_id):
         raise self.retry(exc=e, countdown=60)
 
 
-@celery.task
+@celery.task()
 def batch_save_locations(location_batch):
     """
     위치 데이터 일괄 저장

@@ -37,10 +37,15 @@ redis==5.0.1
 celery==5.3.4
 
 # Testing
-pytest>=7.4.0
-pytest-cov>=4.1.0
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
 pytest-benchmark>=4.0.0
 memory-profiler>=0.61.0
+
+# Mock 및 유틸리티
+faker==20.1.0
 
 # Code quality
 black>=23.3.0
