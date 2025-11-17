@@ -23,31 +23,24 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-west-2
 
-      # ECR Repository 정보 추출
       - name: Extract ECR details from ARN
         id: ecr-details
         run: |
           ARN="${{ secrets.ECR_REPOSITORY_ARN }}"
-
           REGION=$(echo $ARN | cut -d':' -f4)
           ACCOUNT_ID=$(echo $ARN | cut -d':' -f5)
           REPO_NAME=$(echo $ARN | cut -d'/' -f2)
           REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
           echo "region=${REGION}" >> $GITHUB_OUTPUT
-          echo "account-id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
-          echo "repository=${REPO_NAME}" >> $GITHUB_OUTPUT
           echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
           echo "repository-uri=${REGISTRY}/${REPO_NAME}" >> $GITHUB_OUTPUT
 
-      # EC2 인스턴스 정보 추출
       - name: Extract EC2 details from ARN
         id: ec2-details
         run: |
           ARN="${{ secrets.EC2_INSTANCE_ARN }}"
-
           INSTANCE_ID=$(echo $ARN | cut -d'/' -f2)
-
           echo "instance-id=${INSTANCE_ID}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
@@ -58,27 +51,38 @@ jobs:
           aws ecr get-login-password --region ${{ steps.ecr-details.outputs.region }} | \
             docker login --username AWS --password-stdin ${{ steps.ecr-details.outputs.registry }}
 
-      - name: Build and push Docker image
+      - name: Build and push Docker images
         env:
           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
+          # FastAPI 이미지
           docker buildx build \
             --platform linux/amd64 \
-            --cache-from type=registry,ref=$REPOSITORY_URI:latest \
+            --file Dockerfile.fastapi \
+            --cache-from type=registry,ref=$REPOSITORY_URI:fastapi-latest \
             --cache-to type=inline \
-            --tag $REPOSITORY_URI:$IMAGE_TAG \
-            --tag $REPOSITORY_URI:latest \
+            --tag $REPOSITORY_URI:fastapi-$IMAGE_TAG \
+            --tag $REPOSITORY_URI:fastapi-latest \
             --push \
             .
 
-      - name: Deploy to EC2
+          # Nginx 이미지
+          docker buildx build \
+            --platform linux/amd64 \
+            --file Dockerfile.nginx \
+            --cache-from type=registry,ref=$REPOSITORY_URI:nginx-latest \
+            --cache-to type=inline \
+            --tag $REPOSITORY_URI:nginx-$IMAGE_TAG \
+            --tag $REPOSITORY_URI:nginx-latest \
+            --push \
+            .
+
+      - name: Deploy to EC2 via SSM
         env:
           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
           IMAGE_TAG: ${{ github.sha }}
           INSTANCE_ID: ${{ steps.ec2-details.outputs.instance-id }}
-          CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
-          CONTAINER_PORT: ${{ secrets.CONTAINER_PORT }}
           AWS_REGION: ${{ steps.ecr-details.outputs.region }}
           ECR_REGISTRY: ${{ steps.ecr-details.outputs.registry }}
         run: |
@@ -86,11 +90,14 @@ jobs:
             --instance-ids $INSTANCE_ID \
             --document-name "AWS-RunShellScript" \
             --parameters commands="[
+              'set -e',
+              'cd /home/ec2-user/kindmap',
               'aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}',
-              'docker pull ${REPOSITORY_URI}:${IMAGE_TAG}',
-              'docker stop ${CONTAINER_NAME} || true',
-              'docker rm ${CONTAINER_NAME} || true',
-              'docker run -d --name ${CONTAINER_NAME} -p ${CONTAINER_PORT}:${CONTAINER_PORT} --env-file /home/ec2-user/.env ${REPOSITORY_URI}:${IMAGE_TAG}'
+              'export IMAGE_TAG=${IMAGE_TAG}',
+              'export REPOSITORY_URI=${REPOSITORY_URI}',
+              'docker-compose pull',
+              'docker-compose up -d --remove-orphans',
+              'docker system prune -af --volumes'
             ]" \
-            --region us-west-2 \
+            --region $AWS_REGION \
             --output text

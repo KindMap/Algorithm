@@ -95,3 +95,5 @@ EPSILON_CONFIG = {
     "AUD": 0.10,  # 청각장애: 균형
     "ELD": 0.06,  # 고령자: 매우 보수적 (변화에 민감)
 }
+
+ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1", "0.0.0.0"]

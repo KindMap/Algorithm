@@ -2,7 +2,7 @@
 KindMap Backend - FastAPI Application
 
 교통약자를 위한 지하철 경로 안내 시스템
-Phase 3: 실시간 경로 안내 및 경로 이탈 감지
+실시간 경로 안내 및 경로 이탈 감지
 """
 
 import logging
@@ -135,12 +135,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=(
         ["*"]
-        if settings.DEBUG
-        else [
-            "http://localhost:3000",
-            "http://localhost:8080",
-            # "https://kindmap.kr",  # web frontend or cloudfront
-        ]
+        # if settings.DEBUG => 우선 "*"
+        # else [
+        #     "http://localhost:3000",
+        #     "http://localhost:8080",
+        #     # "https://kindmap.kr",  # web frontend or cloudfront
+        # ]
     ),
     allow_credentials=True,
     allow_methods=["*"],
