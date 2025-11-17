@@ -47,3 +47,19 @@ class NavigationUpdateResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str = Field(..., description="에러 메시지")
     code: Optional[str] = Field(None, description="에러 코드")
+
+
+
+# 역 검색 응답 (자동완성)
+class StationSearchResponse(BaseModel):
+    keyword: str = Field(..., description="검색 키워드")
+    count: int = Field(..., description="검색 결과 수")
+    results: List[Dict] = Field(default_factory=list, description="역 정보 리스트")
+
+
+# 역 검증 응답
+class StationValidateResponse(BaseModel):
+    valid: bool = Field(..., description="유효 여부")
+    station_cd: Optional[str] = Field(None, description="역 코드")
+    station_name: Optional[str] = Field(None, description="역 이름")
+    message: Optional[str] = Field(None, description="오류 메시지 (유효하지 않을 때)")
