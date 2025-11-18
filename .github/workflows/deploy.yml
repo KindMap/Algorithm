@@ -1,3 +1,4 @@
+# .github/workflows/deploy.yml
 name: Build and Deploy to EC2
 
 on:
@@ -78,6 +79,81 @@ jobs:
             --push \
             .
 
+      - name: Prepare deployment files
+        env:
+          REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # docker-compose.yml 생성 (환경변수 하드코딩)
+          cat > docker-compose.prod.yml <<EOF
+          version: "3.8"
+
+          services:
+            redis:
+              image: redis:7-alpine
+              container_name: kindmap-redis
+              restart: unless-stopped
+              networks:
+                - kindmap-network
+              expose:
+                - "6379"
+              volumes:
+                - redis-data:/data
+              command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+              healthcheck:
+                test: ["CMD", "redis-cli", "ping"]
+                interval: 10s
+                timeout: 3s
+                retries: 3
+                start_period: 5s
+
+            fastapi:
+              image: ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}
+              container_name: kindmap-fastapi
+              restart: unless-stopped
+              env_file:
+                - /home/ec2-user/.env
+              expose:
+                - "8001"
+              networks:
+                - kindmap-network
+              depends_on:
+                redis:
+                  condition: service_healthy
+              healthcheck:
+                test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()"]
+                interval: 30s
+                timeout: 3s
+                retries: 3
+                start_period: 40s
+
+            nginx:
+              image: ${REPOSITORY_URI}:nginx-${IMAGE_TAG}
+              container_name: kindmap-nginx
+              restart: unless-stopped
+              ports:
+                - "80:80"
+              depends_on:
+                fastapi:
+                  condition: service_healthy
+              networks:
+                - kindmap-network
+              healthcheck:
+                test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+                interval: 30s
+                timeout: 3s
+                retries: 3
+                start_period: 10s
+
+          networks:
+            kindmap-network:
+              driver: bridge
+
+          volumes:
+            redis-data:
+              driver: local
+          EOF
+
       - name: Deploy to EC2 via SSM
         env:
           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
@@ -86,18 +162,67 @@ jobs:
           AWS_REGION: ${{ steps.ecr-details.outputs.region }}
           ECR_REGISTRY: ${{ steps.ecr-details.outputs.registry }}
         run: |
-          aws ssm send-command \
+          # docker-compose 파일을 base64로 인코딩
+          COMPOSE_CONTENT=$(cat docker-compose.prod.yml | base64 -w 0)
+
+          COMMAND_ID=$(aws ssm send-command \
             --instance-ids $INSTANCE_ID \
             --document-name "AWS-RunShellScript" \
             --parameters commands="[
               'set -e',
+              'echo \"Creating deployment directory...\"',
+              'mkdir -p /home/ec2-user/kindmap',
               'cd /home/ec2-user/kindmap',
+              'echo \"Writing docker-compose.yml...\"',
+              'echo ${COMPOSE_CONTENT} | base64 -d > docker-compose.yml',
+              'echo \"Logging into ECR...\"',
               'aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}',
-              'export IMAGE_TAG=${IMAGE_TAG}',
-              'export REPOSITORY_URI=${REPOSITORY_URI}',
-              'docker-compose pull',
-              'docker-compose up -d --remove-orphans',
-              'docker system prune -af --volumes'
+              'echo \"Pulling images...\"',
+              'docker pull ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}',
+              'docker pull ${REPOSITORY_URI}:nginx-${IMAGE_TAG}',
+              'echo \"Stopping existing containers...\"',
+              'docker-compose down || true',
+              'echo \"Starting new containers...\"',
+              'docker-compose up -d',
+              'echo \"Waiting for services to be healthy...\"',
+              'sleep 10',
+              'docker-compose ps',
+              'echo \"Cleaning up old images...\"',
+              'docker image prune -af --filter \"until=24h\"',
+              'echo \"✅ Deployment completed successfully\"'
             ]" \
             --region $AWS_REGION \
+            --output text \
+            --query 'Command.CommandId')
+
+          echo "Command ID: $COMMAND_ID"
+
+          # 명령 실행 완료 대기 (최대 5분)
+          aws ssm wait command-executed \
+            --command-id $COMMAND_ID \
+            --instance-id $INSTANCE_ID \
+            --region $AWS_REGION \
+            --cli-read-timeout 300
+
+          # 실행 결과 확인
+          echo "=== Deployment Output ==="
+          aws ssm get-command-invocation \
+            --command-id $COMMAND_ID \
+            --instance-id $INSTANCE_ID \
+            --region $AWS_REGION \
+            --query 'StandardOutputContent' \
             --output text
+
+          # 에러 확인
+          ERROR_OUTPUT=$(aws ssm get-command-invocation \
+            --command-id $COMMAND_ID \
+            --instance-id $INSTANCE_ID \
+            --region $AWS_REGION \
+            --query 'StandardErrorContent' \
+            --output text)
+
+          if [ ! -z "$ERROR_OUTPUT" ]; then
+            echo "=== Errors Detected ==="
+            echo "$ERROR_OUTPUT"
+            exit 1
+          fi

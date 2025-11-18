@@ -1,3 +1,4 @@
+# docker-compose.yml (로컬 개발용)
 version: "3.8"
 
 services:
@@ -7,8 +8,8 @@ services:
     restart: unless-stopped
     networks:
       - kindmap-network
-    expose:
-      - "6379"
+    ports:
+      - "6379:6379"
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -20,18 +21,22 @@ services:
       start_period: 5s
 
   fastapi:
-    image: ${REPOSITORY_URI}:fastapi-${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
     container_name: kindmap-fastapi
     restart: unless-stopped
     env_file:
-      - /home/ec2-user/.env
-    expose:
-      - "8001"
+      - .env
+    ports:
+      - "8001:8001"
     networks:
       - kindmap-network
     depends_on:
       redis:
         condition: service_healthy
+    volumes:
+      - ./transit-routing:/app
     healthcheck:
       test:
         [
@@ -46,7 +51,9 @@ services:
       start_period: 40s
 
   nginx:
-    image: ${REPOSITORY_URI}:nginx-${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
     container_name: kindmap-nginx
     restart: unless-stopped
     ports:
