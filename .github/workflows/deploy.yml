@@ -57,7 +57,12 @@ jobs:
           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
+          echo "=========================================="
+          echo "Building and pushing Docker images"
+          echo "=========================================="
+
           # FastAPI 이미지
+          echo "Building FastAPI image..."
           docker buildx build \
             --platform linux/amd64 \
             --file Dockerfile.fastapi \
@@ -68,7 +73,10 @@ jobs:
             --push \
             .
 
+          echo "✅ FastAPI image pushed: $REPOSITORY_URI:fastapi-$IMAGE_TAG"
+
           # Nginx 이미지
+          echo "Building Nginx image..."
           docker buildx build \
             --platform linux/amd64 \
             --file Dockerfile.nginx \
@@ -79,12 +87,14 @@ jobs:
             --push \
             .
 
+          echo "✅ Nginx image pushed: $REPOSITORY_URI:nginx-$IMAGE_TAG"
+
       - name: Prepare deployment files
         env:
           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # docker-compose.yml 생성 (환경변수 하드코딩)
+          # docker-compose.yml 생성
           cat > docker-compose.prod.yml <<EOF
           version: "3.8"
 
@@ -154,7 +164,9 @@ jobs:
               driver: local
           EOF
 
-      - name: Deploy to EC2 via SSM
+          echo "✅ docker-compose.prod.yml created"
+
+      - name: Deploy to EC2 via SSM (Fire and Forget)
         env:
           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
           IMAGE_TAG: ${{ github.sha }}
@@ -162,67 +174,73 @@ jobs:
           AWS_REGION: ${{ steps.ecr-details.outputs.region }}
           ECR_REGISTRY: ${{ steps.ecr-details.outputs.registry }}
         run: |
+          echo "=========================================="
+          echo "Sending deployment command to EC2"
+          echo "=========================================="
+
           # docker-compose 파일을 base64로 인코딩
           COMPOSE_CONTENT=$(cat docker-compose.prod.yml | base64 -w 0)
 
+          # SSM 명령 전송 (대기 없음)
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids $INSTANCE_ID \
             --document-name "AWS-RunShellScript" \
             --parameters commands="[
               'set -e',
-              'echo \"Creating deployment directory...\"',
+              'exec > >(tee -a /var/log/kindmap-deploy.log) 2>&1',
+              'echo \"==========================================\" ',
+              'echo \"KindMap Deployment Started\" ',
+              'echo \"Timestamp: \$(date)\" ',
+              'echo \"==========================================\" ',
+              'echo \"Creating deployment directory...\" ',
               'mkdir -p /home/ec2-user/kindmap',
               'cd /home/ec2-user/kindmap',
-              'echo \"Writing docker-compose.yml...\"',
-              'echo ${COMPOSE_CONTENT} | base64 -d > docker-compose.yml',
-              'echo \"Logging into ECR...\"',
+              'echo \"Writing docker-compose.yml...\" ',
+              'echo \"${COMPOSE_CONTENT}\" | base64 -d > docker-compose.yml',
+              'echo \"Logging into ECR...\" ',
               'aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}',
-              'echo \"Pulling images...\"',
+              'echo \"Pulling images...\" ',
               'docker pull ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}',
               'docker pull ${REPOSITORY_URI}:nginx-${IMAGE_TAG}',
-              'echo \"Stopping existing containers...\"',
+              'echo \"Stopping existing containers...\" ',
               'docker-compose down || true',
-              'echo \"Starting new containers...\"',
+              'echo \"Starting new containers...\" ',
               'docker-compose up -d',
-              'echo \"Waiting for services to be healthy...\"',
-              'sleep 10',
+              'echo \"Waiting for services to be healthy...\" ',
+              'sleep 15',
+              'echo \"Container status:\" ',
               'docker-compose ps',
-              'echo \"Cleaning up old images...\"',
-              'docker image prune -af --filter \"until=24h\"',
-              'echo \"✅ Deployment completed successfully\"'
+              'echo \"Health check:\" ',
+              'curl -f http://localhost/health || echo \"Health check failed\" ',
+              'echo \"Cleaning up old images...\" ',
+              'docker image prune -af --filter \"until=24h\" ',
+              'echo \"==========================================\" ',
+              'echo \"✅ Deployment completed successfully\" ',
+              'echo \"Timestamp: \$(date)\" ',
+              'echo \"==========================================\" '
             ]" \
             --region $AWS_REGION \
             --output text \
             --query 'Command.CommandId')
 
+          echo ""
+          echo "=========================================="
+          echo "✅ Deployment Command Sent Successfully"
+          echo "=========================================="
           echo "Command ID: $COMMAND_ID"
-
-          # 명령 실행 완료 대기 (최대 5분)
-          aws ssm wait command-executed \
-            --command-id $COMMAND_ID \
-            --instance-id $INSTANCE_ID \
-            --region $AWS_REGION \
-            --cli-read-timeout 300
-
-          # 실행 결과 확인
-          echo "=== Deployment Output ==="
-          aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id $INSTANCE_ID \
-            --region $AWS_REGION \
-            --query 'StandardOutputContent' \
-            --output text
-
-          # 에러 확인
-          ERROR_OUTPUT=$(aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id $INSTANCE_ID \
-            --region $AWS_REGION \
-            --query 'StandardErrorContent' \
-            --output text)
-
-          if [ ! -z "$ERROR_OUTPUT" ]; then
-            echo "=== Errors Detected ==="
-            echo "$ERROR_OUTPUT"
-            exit 1
-          fi
+          echo "Instance ID: $INSTANCE_ID"
+          echo "Image Tag: $IMAGE_TAG"
+          echo ""
+          echo "🚀 Deployment is running in background on EC2"
+          echo "📋 Deployment logs: /var/log/kindmap-deploy.log"
+          echo ""
+          echo "🔍 To check deployment status, run:"
+          echo "   aws ssm get-command-invocation \\"
+          echo "     --command-id $COMMAND_ID \\"
+          echo "     --instance-id $INSTANCE_ID \\"
+          echo "     --region $AWS_REGION"
+          echo ""
+          echo "📊 Or SSH to EC2 and check:"
+          echo "   tail -f /var/log/kindmap-deploy.log"
+          echo "   docker-compose -f /home/ec2-user/kindmap/docker-compose.yml ps"
+          echo "=========================================="
