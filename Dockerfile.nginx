@@ -1,13 +1,15 @@
 FROM nginx:alpine
 
+# 기본 설정 파일 제거
+RUN rm /etc/nginx/conf.d/default.conf
+
 # Nginx 설정 복사
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/conf.d/kindmap_api.conf /etc/nginx/conf.d/
 
 EXPOSE 80
 
-# 헬스체크
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost/health || exit 1
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["nginx", "-g", "daemon off;"]ss
