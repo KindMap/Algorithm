@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 # service별 requests 구조 정의
 
 
-# 경로 찾기 -> 경로 안내
+# 경로 안내 엔드포인트에서 대안으로 제공하는 request
 class NavigationStartRequest(BaseModel):
     origin: str = Field(..., description="출발지 역 이름")
     destination: str = Field(..., description="목적지 역 이름")

@@ -51,3 +51,9 @@ faker==20.1.0
 black>=23.3.0
 flake8>=6.0.0
 mypy>=1.4.0
+
+# Auth
+python-jose[cryptography]==3.3.0  # JWT
+passlib[bcrypt]==1.7.4            # 비밀번호 해싱
+python-multipart==0.0.6           # OAuth2
+slowapi==0.1.9                    # Rate limiting

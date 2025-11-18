@@ -4,7 +4,7 @@ REST API 경로 계산 엔드포인트 (WebSocket 대안)
 
 from fastapi import APIRouter, HTTPException
 import logging
-
+import uuid
 from app.models.requests import NavigationStartRequest
 from app.models.responses import RouteCalculatedResponse
 from app.services.pathfinding_service import PathfindingService
@@ -58,6 +58,7 @@ async def calculate_route(request: NavigationStartRequest):
         )
 
         return {
+            "route_id": str(uuid.uuid4()),  # route_id 누락 문제 해결 
             "origin": route_data["origin"],
             "destination": route_data["destination"],
             "routes": route_data["routes"],
