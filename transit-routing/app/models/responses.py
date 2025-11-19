@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 # 경로 찾기 응답 top3까지 제공
 class RouteCalculatedResponse(BaseModel):
-    route_id: str = Field(..., description="경로 ID")
+    route_id: Optional[str] = Field(None, description="경로 ID (WebSocket 세션 시에만 제공)")
     origin: str = Field(..., description="출발지")
     destination: str = Field(..., description="목적지")
     routes: List[Dict] = Field(..., description="경로 리스트 (최대 3개)")

@@ -15,7 +15,7 @@ class Station:
 
 @dataclass
 class RouteInfo:
-    route_id: str
+    route_id: Optional[str]  # WebSocket 세션 시에만 제공
     origin_cd: str
     destination_cd: str
     route_sequence: List[str]
