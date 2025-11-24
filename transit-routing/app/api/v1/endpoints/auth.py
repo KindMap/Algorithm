@@ -6,7 +6,7 @@ from app.services.auth_service import AuthService
 from app.auth.security import create_access_token, create_refresh_token
 from app.api.deps import get_current_user, get_current_active_user
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter()  # auth/ 가 중복되지 않도록 수정
 
 
 @router.post(
