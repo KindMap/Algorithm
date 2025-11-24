@@ -1,5 +1,6 @@
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
+from uuid import UUID
 
 # service별 requests 구조 정의
 
@@ -26,3 +27,17 @@ class RecalculateRouteRequest(BaseModel):
     latitude: float = Field(..., ge=-90, le=90, description="현재 위도")
     longitude: float = Field(..., ge=-180, le=180, description="현재 경도")
     disability_type: str = Field(default="PHY", description="교통약자 유형")
+
+
+# User 회원가입 요청
+class UserRegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    username: Optional[str] = None
+    disability_type: Optional[str] = Field(None, pattern="^(PHY|VIS|AUD|ELD|NONE)$")
+
+
+# User 로그인 요청
+class UserLoginRequest(BaseModel):
+    email: EmailStr
+    password: str

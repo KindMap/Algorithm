@@ -1,13 +1,16 @@
 from typing import List, Optional
 from dataclasses import dataclass
+from datetime import datetime
+from uuid import UUID
 
 # domain 정의
 
+
 @dataclass
 class Station:
-    station_cd: str # 내부 연산은 station_cd로 통일
-    name: str # station_name아님!!!
-    line: str # line_num아님!!!
+    station_cd: str  # 내부 연산은 station_cd로 통일
+    name: str  # station_name아님!!!
+    line: str  # line_num아님!!!
     lat: float
     lng: float
     station_id: Optional[str] = None
@@ -23,3 +26,16 @@ class RouteInfo:
     total_time: float
     transfers: int
     transfer_stations: List[str]
+
+
+# JWT login 기능을 위한 User 클래스 정의
+@dataclass
+class User:
+    user_id: UUID
+    email: str
+    username: Optional[str]
+    disability_type: Optional[str]
+    is_active: bool
+    created_at: datetime
+    last_login: Optional[datetime] = None
+

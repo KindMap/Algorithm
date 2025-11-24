@@ -27,6 +27,12 @@ class Settings:
         "CELERY_RESULT_BACKEND", "redis://redis:6379/2"
     )
 
+    # JWT 설정
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "my -jwt-secret-key")
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     @property
     def DB_CONFIG(self) -> Dict[str, Any]:
         return {

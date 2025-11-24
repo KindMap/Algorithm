@@ -1,12 +1,15 @@
 from typing import List, Optional, Tuple, Dict
 from pydantic import BaseModel, Field
+from uuid import UUID
 
 # service 별 응답 구조 정의
 
 
 # 경로 찾기 응답 top3까지 제공
 class RouteCalculatedResponse(BaseModel):
-    route_id: Optional[str] = Field(None, description="경로 ID (WebSocket 세션 시에만 제공)")
+    route_id: Optional[str] = Field(
+        None, description="경로 ID (WebSocket 세션 시에만 제공)"
+    )
     origin: str = Field(..., description="출발지")
     destination: str = Field(..., description="목적지")
     routes: List[Dict] = Field(..., description="경로 리스트 (최대 3개)")
@@ -49,7 +52,6 @@ class ErrorResponse(BaseModel):
     code: Optional[str] = Field(None, description="에러 코드")
 
 
-
 # 역 검색 응답 (자동완성)
 class StationSearchResponse(BaseModel):
     keyword: str = Field(..., description="검색 키워드")
@@ -63,3 +65,28 @@ class StationValidateResponse(BaseModel):
     station_cd: Optional[str] = Field(None, description="역 코드")
     station_name: Optional[str] = Field(None, description="역 이름")
     message: Optional[str] = Field(None, description="오류 메시지 (유효하지 않을 때)")
+
+
+# User 로그인 성공 응답
+class UserLoginResponse(BaseModel):
+    """로그인 성공 응답 -> 발급된 토큰 정보 반환"""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class UserResponse(BaseModel):
+    """사용자 정보 조회 -> ID와 생성일자"""
+
+    user_id: UUID
+    email: str
+    username: Optional[str]
+    disability_type: Optional[str]
+    created_at: str
+
+
+class TokenData(BaseModel):
+    """토큰 페이로드 데이터: 토큰에서 추출한 사용자 식별자"""
+
+    uuid_id: Optional[UUID] = None
