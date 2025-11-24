@@ -57,3 +57,4 @@ python-jose[cryptography]==3.3.0  # JWT
 passlib[bcrypt]==1.7.4            # 비밀번호 해싱
 python-multipart==0.0.6           # OAuth2
 slowapi==0.1.9                    # Rate limiting
+email-validator
