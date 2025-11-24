@@ -30,7 +30,7 @@ async def register(user_data: UserRegisterRequest):
     return user
 
 
-@router.post("/login", response_model=TokenData)
+@router.post("/login", response_model=UserLoginResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     # OAuth2PasswordRequestForm은 username, password 필드이지만
     # 현재 email을 ID로 사용하므로 form_data.username <- email
@@ -53,7 +53,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
     AuthService.save_refresh_token(user.user_id, refresh_token)
 
-    return TokenData(access_token=access_token, refresh_token=refresh_token)
+    return UserLoginResponse(access_token=access_token, refresh_token=refresh_token)
 
 
 @router.post("/refresh", response_model=TokenData)
