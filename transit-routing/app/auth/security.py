@@ -64,7 +64,7 @@ def create_refresh_token(user_id: UUID) -> str:
     return encoded_jwt
 
 
-def decoded_token(token: str) -> Optional[dict]:
+def decode_token(token: str) -> Optional[dict]:
     """
     토큰 디코딩 및 검증
     return payload dict or None(유효하지 않은 경우)
