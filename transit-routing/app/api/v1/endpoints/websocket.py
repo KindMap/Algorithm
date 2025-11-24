@@ -165,40 +165,47 @@ async def websocket_endpoint(
             token = auth_header.split(" ")[1]
 
     if token is None:
-        logger.warning(f"WebSocket 연결 거부 (토큰 없음): {user_id}")
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    try:
-        payload = decode_token(token)
-        
-        # 유효하지 않은 토큰
-        if payload is None:
-            logger.warning(f"WebSocket 연결 거부 (유효하지 않은 토큰): {user_id}")
+        # [수정] 토큰이 없으면 거부하는 대신, 게스트로 간주하고 로그만 남김
+        # 단, user_id가 "temp_"로 시작하는지 확인하여 보안 유지
+        if user_id.startswith("temp_"):
+            logger.info(f"게스트 연결 허용: {user_id}")
+        else:
+            # temp_가 아닌데 토큰이 없으면 의심스러운 접근이므로 거부
+            logger.warning(f"WebSocket 연결 거부 (토큰 없음, 비게스트): {user_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
+    else:
+        # 토큰이 있는 경우: 기존 검증 로직 수행
+        try:
+            payload = decode_token(token)
 
-        # 토큰 사용자 ID 확인
-        token_user_id = payload.get("sub")
-        if token_user_id is None:
+            # 유효하지 않은 토큰
+            if payload is None:
+                logger.warning(f"WebSocket 연결 거부 (유효하지 않은 토큰): {user_id}")
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+
+            # 토큰 사용자 ID 확인
+            token_user_id = payload.get("sub")
+            if token_user_id is None:
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+
+            # [중요] 본인 확인: 요청한 URL의 user_id와 토큰의 주인이 같은지 검사
+            # 문자열로 변환하여 비교 (UUID vs str 문제 방지)
+            if str(token_user_id) != str(user_id):
+                logger.warning(f"WebSocket 연결 거부 (ID 불일치): URL={user_id}, Token={token_user_id}")
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+
+        except JWTError:
+            logger.warning(f"WebSocket 연결 거부 (JWT 에러): {user_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
-
-        # [중요] 본인 확인: 요청한 URL의 user_id와 토큰의 주인이 같은지 검사
-        # 문자열로 변환하여 비교 (UUID vs str 문제 방지)
-        if str(token_user_id) != str(user_id):
-            logger.warning(f"WebSocket 연결 거부 (ID 불일치): URL={user_id}, Token={token_user_id}")
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        except Exception as e:
+            logger.error(f"WebSocket 인증 중 오류: {e}")
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
             return
-            
-    except JWTError:
-        logger.warning(f"WebSocket 연결 거부 (JWT 에러): {user_id}")
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-    except Exception as e:
-        logger.error(f"WebSocket 인증 중 오류: {e}")
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-        return
 
     # -------------------------------------------------------
     # 2. 연결 수립 및 메인 로직
@@ -208,13 +215,14 @@ async def websocket_endpoint(
     await manager.connect(websocket, user_id)
 
     try:
-        # 연결 성공 메시지
+        # 연결 성공 메시지 (게스트/인증 구분)
+        connection_message = "서버 연결 성공 (게스트)" if user_id.startswith("temp_") else "서버 연결 성공 (인증됨)"
         await manager.send_message(
             user_id,
             {
                 "type": "connected",
                 "user_id": user_id,
-                "message": "서버 연결 성공 (인증됨)",
+                "message": connection_message,
                 "server_version": "4.1.0",
             },
         )
@@ -334,8 +342,9 @@ async def handle_start_navigation(
             },
         )
 
-        # 비동기 이벤트 저장
-        save_navigation_event.delay(user_id, "route_calculated", route_data, route_id)
+        # 비동기 이벤트 저장 (게스트는 스킵)
+        if not user_id.startswith("temp_"):
+            save_navigation_event.delay(user_id, "route_calculated", route_data, route_id)
 
         logger.info(
             f"경로 계산 완료: route_id={route_id}, {route_data['routes_returned']}개 경로 반환"
@@ -403,9 +412,11 @@ async def handle_location_update(
                     "suggested_action": "재계산을 권장합니다",
                 },
             )
-            save_navigation_event.delay(
-                user_id, "deviation", guidance, session["route_id"]
-            )
+            # 비동기 이벤트 저장 (게스트는 스킵)
+            if not user_id.startswith("temp_"):
+                save_navigation_event.delay(
+                    user_id, "deviation", guidance, session["route_id"]
+                )
             logger.warning(
                 f"경로 이탈 감지: user={user_id}, nearest={guidance.get('nearest_station')}"
             )
@@ -422,9 +433,11 @@ async def handle_location_update(
                     "destination_cd": session.get("destination_cd"),
                 },
             )
-            save_navigation_event.delay(
-                user_id, "arrival", guidance, session["route_id"]
-            )
+            # 비동기 이벤트 저장 (게스트는 스킵)
+            if not user_id.startswith("temp_"):
+                save_navigation_event.delay(
+                    user_id, "arrival", guidance, session["route_id"]
+                )
             logger.info(
                 f"목적지 도착: user={user_id}, destination={guidance['destination']}"
             )
@@ -449,8 +462,9 @@ async def handle_location_update(
             },
         )
 
-        # 비동기 위치 이력 저장
-        save_location_history.delay(user_id, lat, lon, accuracy, session["route_id"])
+        # 비동기 위치 이력 저장 (게스트는 스킵)
+        if not user_id.startswith("temp_"):
+            save_location_history.delay(user_id, lat, lon, accuracy, session["route_id"])
 
     except KindMapException as e:
         await manager.send_error(user_id, e.message, e.code)
@@ -569,7 +583,9 @@ async def handle_recalculate_route(
             },
         )
 
-        save_navigation_event.delay(user_id, "recalculate", route_data, route_id)
+        # 비동기 이벤트 저장 (게스트는 스킵)
+        if not user_id.startswith("temp_"):
+            save_navigation_event.delay(user_id, "recalculate", route_data, route_id)
         logger.info(f"경로 재계산 완료: route_id={route_id}")
 
     except KindMapException as e:
@@ -595,8 +611,9 @@ async def handle_end_navigation(user_id: str):
         # get_redis_client().redis_client.delete(f"session:{user_id}")
         get_redis_client().delete_session(user_id)  # => 캡슐화 유지
 
-        # 종료 이벤트 저장
-        save_navigation_event.delay(user_id, "navigation_ended", {}, route_id)
+        # 종료 이벤트 저장 (게스트는 스킵)
+        if not user_id.startswith("temp_"):
+            save_navigation_event.delay(user_id, "navigation_ended", {}, route_id)
 
         await manager.send_message(
             user_id,
