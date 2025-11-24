@@ -1,6 +1,7 @@
 from typing import List, Optional, Tuple, Dict
 from pydantic import BaseModel, Field
 from uuid import UUID
+from datetime import datetime
 
 # service 별 응답 구조 정의
 
@@ -83,7 +84,7 @@ class UserResponse(BaseModel):
     email: str
     username: Optional[str]
     disability_type: Optional[str]
-    created_at: str
+    created_at: datetime
 
 
 class TokenData(BaseModel):
