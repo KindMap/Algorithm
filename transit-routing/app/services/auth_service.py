@@ -139,7 +139,7 @@ class AuthService:
                         SELECT user_id, email, username, disability_type, is_active, created_at, last_login
                         FROM users WHERE user_id = %s
                         """,
-                    str((user_id,)),
+                    (str(user_id),),
                 )
                 row = cur.fetchone()
 
@@ -166,7 +166,7 @@ class AuthService:
             with conn.cursor() as cur:
                 # 기존 토큰을 지우고 새로 넣을지, 누적할지는 추후 정책 결정 필요
                 # 우선 '단일 기기 로그인' 처럼 기존 토큰 삭제 후 삽입으로 구현
-                cur.execute("DELETE FROM refresh_tokens WHERE user_id = %s", str((user_id,)))
+                cur.execute("DELETE FROM refresh_tokens WHERE user_id = %s", (str(user_id),))
 
                 cur.execute(
                     """
