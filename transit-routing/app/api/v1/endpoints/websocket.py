@@ -6,7 +6,13 @@ import logging
 import uuid
 from typing import Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 
+# 사용자 정보 조회(sync) 호출로 웹소켓 핸들러 이벤트 루프(async)가 중단될 가능성 존재 => run_in_threadpool 사용
+from fastapi.concurrency import run_in_threadpool
+
+from app.models.requests import NavigationStartRequest  # rest api에서 쓰던 모델 재사용
+from app.services.auth_service import AuthService  # user 정보 조회
 from app.services.pathfinding_service import PathfindingService
 from app.services.guidance_service import GuidanceService
 from app.db.redis_client import init_redis
@@ -45,6 +51,7 @@ def get_guidance_service():
     if _guidance_service is None:
         _guidance_service = GuidanceService(get_redis_client())
     return _guidance_service
+
 
 class ConnectionManager:
     """websocket 연결 관리자"""
@@ -211,25 +218,43 @@ async def handle_start_navigation(
     user_id: str, data: dict, pathfinding_service: PathfindingService
 ):
     """
-    상위 3개 경로를 계산하여 반환
+    상위 3개 경로를 계산하여 반환 + pydantic 모델 사용 및 로그인 시 유저 정보 기본 세팅 적용
     """
-    origin_name = data.get("origin")
-    destination_name = data.get("destination")
-    disability_type = data.get("disability_type", "PHY")
 
-    if not origin_name or not destination_name:
+    # 입력값 검증
+    try:
+        request_model = NavigationStartRequest(**data)
+    except ValidationError as e:
+        # 검증 실패 시 에러 전송
         await manager.send_error(
-            user_id, "출발지와 목적지가 필요합니다", "MISSING_PARAMETERS"
+            user_id, f"입력값이 올바르지 않습니다: {e.errors()}", "INVALID_PARAMETERS"
         )
         return
+    
+    # rest api와 동일한 로직 적용
+    final_disability_type = request_model.disability_type
 
-    logger.info(
-        f"경로 계산 요청: user={user_id}, {origin_name} → {destination_name}, type={disability_type}"
-    )
+    if not final_disability_type:
+        # 추후 연결 시점에 유저 정보 캐싱 구현 필요
+        try:
+            # sync 함수인 get_user_by_id를 스레드풀에서 실행하여 non-blocking 처리
+            user = await run_in_threadpool(AuthService.get_user_by_id, user_id)
+
+            if user:
+                final_disability_type = user.disability_type
+                logger.info(f"user profile 적용: {user_id}, {final_disability_type}")
+        except Exception as e:
+            logger.warning(f"user profile 조회 실패 ({user_id}): {e}")
+    
+    if not final_disability_type:
+        final_disability_type = "PHY" # default -> PHY
+
 
     try:
         route_data = pathfinding_service.calculate_route(
-            origin_name, destination_name, disability_type
+            origin_name=request_model.origin,
+            destination_name=request_model.destination,
+            disability_type=final_disability_type
         )
 
         route_id = str(uuid.uuid4())
