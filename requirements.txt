@@ -56,5 +56,6 @@ mypy>=1.4.0
 python-jose[cryptography]==3.3.0  # JWT
 passlib[bcrypt]==1.7.4            # 비밀번호 해싱
 python-multipart==0.0.6           # OAuth2
+bcrypt==3.2.2                     # [중요] 호환성 문제 해결을 위한 버전 고정
 slowapi==0.1.9                    # Rate limiting
 email-validator
