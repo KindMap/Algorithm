@@ -131,17 +131,11 @@ app = FastAPI(
 )
 
 # CORS 설정
+# allow_credentials=True일 때는 allow_origins에 ["*"]를 사용할 수 없음
+# 명시적인 origin 목록을 환경변수에서 가져옴
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=(
-        ["*"]
-        # if settings.DEBUG => 우선 "*"
-        # else [
-        #     "http://localhost:3000",
-        #     "http://localhost:8080",
-        #     # "https://kindmap.kr",  # web frontend or cloudfront
-        # ]
-    ),
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

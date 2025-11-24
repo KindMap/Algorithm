@@ -33,6 +33,12 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # CORS 설정
+    ALLOWED_ORIGINS: list[str] = os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com/",
+    ).split(",")
+
     @property
     def DB_CONFIG(self) -> Dict[str, Any]:
         return {
