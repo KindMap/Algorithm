@@ -28,6 +28,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # CORS 설정 - .env 파일 없이도 자동으로 설정됨
+      # environment 섹션이 env_file보다 우선순위가 높음
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://35.92.117.143,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com"
     ports:
       - "8001:8001"
     networks:
