@@ -12,12 +12,22 @@ from app.models.domain import User
 # => 선택적 인증을 위해 필수
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
-async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[User]:
+
+async def get_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+) -> Optional[User]:
     if token is None:
         return None
-    
+
     try:
         payload = decode_token(token)
+        if payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         user_id: str = payload.get("sub")
 
         if payload.get("type") != "access":
@@ -26,15 +36,18 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Opt
         user_id_str: str = payload.get("sub")
         if user_id_str is None:
             return None
-        
+
         user = AuthService.get_user_by_id(UUID(user_id_str))
         return user
-    
-    except(JWTError,ValueError):
-        return None # error 발생 X
+
+    except (JWTError, ValueError):
+        return None  # error 발생 X
+
 
 # error 반환 -> 로그인이 필수인 엔드포인트에서 사용
-async def get_current_active_user(current_user: Optional[User] = Depends(get_current_user)) -> User:
+async def get_current_active_user(
+    current_user: Optional[User] = Depends(get_current_user),
+) -> User:
     if current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -44,8 +57,7 @@ async def get_current_active_user(current_user: Optional[User] = Depends(get_cur
 
     if not current_user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
         )
 
     return current_user

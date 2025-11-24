@@ -5,11 +5,12 @@ FAST API Websocket endpoint
 import logging
 import uuid
 from typing import Dict
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
 from pydantic import ValidationError
 
 # 사용자 정보 조회(sync) 호출로 웹소켓 핸들러 이벤트 루프(async)가 중단될 가능성 존재 => run_in_threadpool 사용
 from fastapi.concurrency import run_in_threadpool
+from jose import JWTError
 
 from app.models.requests import NavigationStartRequest  # rest api에서 쓰던 모델 재사용
 from app.services.auth_service import AuthService  # user 정보 조회
@@ -18,6 +19,7 @@ from app.services.guidance_service import GuidanceService
 from app.db.redis_client import init_redis
 from app.core.exceptions import KindMapException
 from app.tasks.tasks import save_location_history, save_navigation_event
+from app.auth.security import decode_token  # JWT 디코딩 함수 임포트
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,7 @@ class ConnectionManager:
     """websocket 연결 관리자"""
 
     # 추후 부하테스트를 통해 임계점을 찾고 수정하기
-    # 임시 최대 동시 연결 수 => 100
+    # 임시 최대 동시 연결 수 => 1000
     MAX_CONNECTIONS = 1000
 
     def __init__(self):
@@ -80,22 +82,24 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"기존 연결 종료에 실패하였습니다: {e}")
             finally:
-                del self.active_connections[user_id]
+                if user_id in self.active_connections:
+                    del self.active_connections[user_id]
 
         # 연결 수 제한 체크
         if len(self.active_connections) >= self.MAX_CONNECTIONS:
             await websocket.close(
-                code=1008, reason="서버 연결 한계에 도달했습니다."  # Policy Violation
+                code=status.WS_1008_POLICY_VIOLATION, reason="서버 연결 한계에 도달했습니다."
             )
             logger.warning(
                 f"연결 거부(한계 도달): user={user_id}, "
                 f"current={len(self.active_connections)}"
             )
-            raise Exception("최대 연결 수 초과")
+            return  # raise Exception 대신 return으로 처리하여 흐름 제어
+
         await websocket.accept()
         self.active_connections[user_id] = websocket
         logger.info(
-            f"클라이언트 연결: {user_id}"
+            f"클라이언트 연결: {user_id} "
             f"총 {len(self.active_connections)}/{self.MAX_CONNECTIONS} 개 연결"
         )
 
@@ -136,21 +140,71 @@ manager = ConnectionManager()
 
 
 @router.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: str):
+async def websocket_endpoint(
+    websocket: WebSocket, 
+    user_id: str, 
+    token: str = Query(None)  # 쿼리 파라미터로 토큰 수신
+):
     """
     Websocket main endpoint
 
-    /api/v1/ws/{user_id}
+    /api/v1/ws/{user_id}?token={jwt_token}
 
-    핵심 기능:
-    - 실시간 위치 업데이트
-    - 경로 안내 메시지
-    - 경로 이탈 감지
-    - 도착 감지
-    - 경로 재계산
-    - 경로 변경 (상위 3개 중 선택)
+    보안 로직 추가:
+    1. 토큰 유효성 검증
+    2. URL의 user_id와 토큰의 sub(user_id) 일치 여부 확인
     """
+    
+    # -------------------------------------------------------
+    # 1. JWT 인증 및 권한 검사 (핸드셰이크 전 수행)
+    # -------------------------------------------------------
+    if token is None:
+        # 쿼리에 없으면 헤더에서도 시도 (선택적)
+        auth_header = websocket.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
 
+    if token is None:
+        logger.warning(f"WebSocket 연결 거부 (토큰 없음): {user_id}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    try:
+        payload = decode_token(token)
+        
+        # 유효하지 않은 토큰
+        if payload is None:
+            logger.warning(f"WebSocket 연결 거부 (유효하지 않은 토큰): {user_id}")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        # 토큰 사용자 ID 확인
+        token_user_id = payload.get("sub")
+        if token_user_id is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        # [중요] 본인 확인: 요청한 URL의 user_id와 토큰의 주인이 같은지 검사
+        # 문자열로 변환하여 비교 (UUID vs str 문제 방지)
+        if str(token_user_id) != str(user_id):
+            logger.warning(f"WebSocket 연결 거부 (ID 불일치): URL={user_id}, Token={token_user_id}")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+            
+    except JWTError:
+        logger.warning(f"WebSocket 연결 거부 (JWT 에러): {user_id}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    except Exception as e:
+        logger.error(f"WebSocket 인증 중 오류: {e}")
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        return
+
+    # -------------------------------------------------------
+    # 2. 연결 수립 및 메인 로직
+    # -------------------------------------------------------
+    
+    # manager.connect 내부에서 accept() 수행
     await manager.connect(websocket, user_id)
 
     try:
@@ -160,8 +214,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
             {
                 "type": "connected",
                 "user_id": user_id,
-                "message": "서버 연결 성공",
-                "server_version": "4.0.0",
+                "message": "서버 연결 성공 (인증됨)",
+                "server_version": "4.1.0",
             },
         )
 
