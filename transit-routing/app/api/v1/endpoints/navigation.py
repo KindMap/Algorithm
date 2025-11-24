@@ -77,10 +77,10 @@ async def calculate_route(
             f"REST 경로 계산: {request.origin} → {request.destination}, type={request.disability_type}"
         )
 
-        result = PathfindingService.calculate_route(
-            origin=request.origin,
-            destination=request.destination,
-            disability_type=request.disability_type,
+        result = service.calculate_route(
+            origin_name=request.origin,
+            destination_name=request.destination,
+            disability_type=final_disability_type,
         )
 
         return result
