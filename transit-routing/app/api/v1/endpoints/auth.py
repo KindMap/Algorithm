@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Body
 from fastapi.security import OAuth2PasswordRequestForm
 from app.models.requests import UserRegisterRequest
-from app.models.responses import UserResponse, UserLoginResponse, TokenData
+from app.models.responses import TokenResponse, UserResponse, TokenPayload
 from app.services.auth_service import AuthService
 from app.auth.security import create_access_token, create_refresh_token
 from app.api.deps import get_current_user, get_current_active_user
@@ -30,7 +30,7 @@ async def register(user_data: UserRegisterRequest):
     return user
 
 
-@router.post("/login", response_model=TokenData)
+@router.post("/login", response_model=TokenResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     # OAuth2PasswordRequestForm은 username, password 필드이지만
     # 현재 email을 ID로 사용하므로 form_data.username <- email
@@ -53,10 +53,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
     AuthService.save_refresh_token(user.user_id, refresh_token)
 
-    return TokenData(access_token=access_token, refresh_token=refresh_token)
+    return TokenResponse(
+        access_token=access_token, refresh_token=refresh_token, token_type="bearer"
+    )
 
 
-@router.post("/refresh", response_model=TokenData)
+# 토큰 갱신 -> Token 정보 반환
+@router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
     # Body에서 JSON 형태로 토큰을 받도록 강제 => Query Param 방지
     refresh_token: str = Body(..., embed=True)
@@ -74,7 +77,9 @@ async def refresh_token(
     # 기존 토큰을 대체
     AuthService.save_refresh_token(user_id, new_refresh_token)
 
-    return TokenData(access_token=access_token, refresh_token=new_refresh_token)
+    return TokenResponse(
+        access_token=access_token, refresh_token=new_refresh_token, token_type="bearer"
+    )
 
 
 @router.post("/logout")

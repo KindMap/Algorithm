@@ -68,8 +68,8 @@ class StationValidateResponse(BaseModel):
     message: Optional[str] = Field(None, description="오류 메시지 (유효하지 않을 때)")
 
 
-# User 로그인 성공 응답
-class UserLoginResponse(BaseModel):
+# Access + Refresh Token => 로그인 및 토큰 갱신 시 반환
+class TokenResponse(BaseModel):
     """로그인 성공 응답 -> 발급된 토큰 정보 반환"""
 
     access_token: str
@@ -77,6 +77,7 @@ class UserLoginResponse(BaseModel):
     token_type: str = "bearer"
 
 
+# 회원가입 및 내 정보 조회 시 반환 => User Info
 class UserResponse(BaseModel):
     """사용자 정보 조회 -> ID와 생성일자"""
 
@@ -87,7 +88,8 @@ class UserResponse(BaseModel):
     created_at: datetime
 
 
-class TokenData(BaseModel):
+# 기존 TokenData -> JWT를 디코딩했을 때, 내부적으로 사용하는 데이터
+class TokenPayload(BaseModel):
     """토큰 페이로드 데이터: 토큰에서 추출한 사용자 식별자"""
 
     uuid_id: Optional[UUID] = None
