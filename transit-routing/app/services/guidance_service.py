@@ -157,6 +157,7 @@ class GuidanceService:
                     guidance["is_transfer"] = True
                     guidance["transfer_from_line"] = from_line
                     guidance["transfer_to_line"] = to_line
+                    # websocket의 message 필드에 안내 문구 전송
                     guidance["message"] = (
                         f"{next_station_name}에서 {from_line} → {to_line} 환승하세요"
                     )

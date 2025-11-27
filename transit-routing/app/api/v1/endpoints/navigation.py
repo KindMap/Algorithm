@@ -12,6 +12,7 @@ from app.core.exceptions import KindMapException
 from app.api.deps import get_current_user
 from app.models.domain import User
 from typing import Optional
+import uuid
 
 
 router = APIRouter()
@@ -82,6 +83,14 @@ async def calculate_route(
             destination_name=request.destination,
             disability_type=final_disability_type,
         )
+
+        # route_id 생성 및 추가
+        # client -> REST API응답을 사용하여 경로를 탐색할 경우에도 route_id를 받을 수 있도록 함
+        # Wesocket start_navigation과 일관성 유지
+        route_id = str(uuid.uuid4())
+        result["route_id"] = route_id
+
+        logger.info(f"REST 경로 계산 완료: {route_id}")
 
         return result
 

@@ -88,7 +88,8 @@ class ConnectionManager:
         # 연결 수 제한 체크
         if len(self.active_connections) >= self.MAX_CONNECTIONS:
             await websocket.close(
-                code=status.WS_1008_POLICY_VIOLATION, reason="서버 연결 한계에 도달했습니다."
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason="서버 연결 한계에 도달했습니다.",
             )
             logger.warning(
                 f"연결 거부(한계 도달): user={user_id}, "
@@ -141,23 +142,21 @@ manager = ConnectionManager()
 
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(
-    websocket: WebSocket, 
-    user_id: str, 
-    token: str = Query(None)  # 쿼리 파라미터로 토큰 수신
+    websocket: WebSocket,
+    user_id: str,
+    token: str = Query(None),  # 쿼리 파라미터로 토큰 수신
 ):
     """
     Websocket main endpoint
 
     /api/v1/ws/{user_id}?token={jwt_token}
 
-    보안 로직 추가:
+    보안 로직:
     1. 토큰 유효성 검증
     2. URL의 user_id와 토큰의 sub(user_id) 일치 여부 확인
     """
-    
-    # -------------------------------------------------------
-    # 1. JWT 인증 및 권한 검사 (핸드셰이크 전 수행)
-    # -------------------------------------------------------
+
+    # JWT 인증 및 검사
     if token is None:
         # 쿼리에 없으면 헤더에서도 시도 (선택적)
         auth_header = websocket.headers.get("authorization")
@@ -191,10 +190,12 @@ async def websocket_endpoint(
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                 return
 
-            # [중요] 본인 확인: 요청한 URL의 user_id와 토큰의 주인이 같은지 검사
+            # 본인 확인: 요청한 URL의 user_id와 토큰의 주인이 같은지 검사
             # 문자열로 변환하여 비교 (UUID vs str 문제 방지)
             if str(token_user_id) != str(user_id):
-                logger.warning(f"WebSocket 연결 거부 (ID 불일치): URL={user_id}, Token={token_user_id}")
+                logger.warning(
+                    f"WebSocket 연결 거부 (ID 불일치): URL={user_id}, Token={token_user_id}"
+                )
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                 return
 
@@ -210,20 +211,24 @@ async def websocket_endpoint(
     # -------------------------------------------------------
     # 2. 연결 수립 및 메인 로직
     # -------------------------------------------------------
-    
+
     # manager.connect 내부에서 accept() 수행
     await manager.connect(websocket, user_id)
 
     try:
         # 연결 성공 메시지 (게스트/인증 구분)
-        connection_message = "서버 연결 성공 (게스트)" if user_id.startswith("temp_") else "서버 연결 성공 (인증됨)"
+        connection_message = (
+            "서버 연결 성공 (게스트)"
+            if user_id.startswith("temp_")
+            else "서버 연결 성공 (인증됨)"
+        )
         await manager.send_message(
             user_id,
             {
                 "type": "connected",
                 "user_id": user_id,
                 "message": connection_message,
-                "server_version": "4.1.0",
+                "server_version": "4.2.0",  # navigation logic 수정 => 4.2.0
             },
         )
 
@@ -280,7 +285,7 @@ async def handle_start_navigation(
     user_id: str, data: dict, pathfinding_service: PathfindingService
 ):
     """
-    상위 3개 경로를 계산하여 반환 + pydantic 모델 사용 및 로그인 시 유저 정보 기본 세팅 적용
+    입력받은 경로에 맞춰 경로 안내
     """
 
     # 입력값 검증
@@ -292,7 +297,7 @@ async def handle_start_navigation(
             user_id, f"입력값이 올바르지 않습니다: {e.errors()}", "INVALID_PARAMETERS"
         )
         return
-    
+
     # rest api와 동일한 로직 적용
     final_disability_type = request_model.disability_type
 
@@ -307,16 +312,15 @@ async def handle_start_navigation(
                 logger.info(f"user profile 적용: {user_id}, {final_disability_type}")
         except Exception as e:
             logger.warning(f"user profile 조회 실패 ({user_id}): {e}")
-    
-    if not final_disability_type:
-        final_disability_type = "PHY" # default -> PHY
 
+    if not final_disability_type:
+        final_disability_type = "PHY"  # default -> PHY
 
     try:
         route_data = pathfinding_service.calculate_route(
             origin_name=request_model.origin,
             destination_name=request_model.destination,
-            disability_type=final_disability_type
+            disability_type=final_disability_type,
         )
 
         route_id = str(uuid.uuid4())
@@ -344,7 +348,9 @@ async def handle_start_navigation(
 
         # 비동기 이벤트 저장 (게스트는 스킵)
         if not user_id.startswith("temp_"):
-            save_navigation_event.delay(user_id, "route_calculated", route_data, route_id)
+            save_navigation_event.delay(
+                user_id, "route_calculated", route_data, route_id
+            )
 
         logger.info(
             f"경로 계산 완료: route_id={route_id}, {route_data['routes_returned']}개 경로 반환"
@@ -375,6 +381,7 @@ async def handle_location_update(
     lat = data.get("latitude")
     lon = data.get("longitude")
     accuracy = data.get("accuracy", 50)
+    route_id_from_client = data.get("route_id")
 
     if lat is None or lon is None:
         await manager.send_error(
@@ -391,6 +398,24 @@ async def handle_location_update(
             "NO_ACTIVE_SESSION",
         )
         return
+
+    # route_id 검증 추가
+    # client <-> session 경로가 동일한지 확인
+    # 데이터 무결성 유지
+    if route_id_from_client:
+        session_route_id = session.get("route_id")
+        if session_route_id != route_id_from_client:
+            # 경로 ID가 서로 일치하지 않을 경우
+            logger.warning(
+                f"route_id 불일치: user={user_id}, "
+                f"session={session_route_id}, client={route_id_from_client}"
+            )
+            await manager.send_error(  # 에러 메시지 전
+                user_id,
+                "경로 ID가 일치하지 않습니다. 경로를 다시 설정하세요.",
+                "ROUTE_ID_MISMATCH",
+            )
+            return
 
     logger.debug(
         f"위치 업데이트: user={user_id}, lat={lat:.6f}, lon={lon:.6f}, accuracy={accuracy}m"
@@ -464,7 +489,9 @@ async def handle_location_update(
 
         # 비동기 위치 이력 저장 (게스트는 스킵)
         if not user_id.startswith("temp_"):
-            save_location_history.delay(user_id, lat, lon, accuracy, session["route_id"])
+            save_location_history.delay(
+                user_id, lat, lon, accuracy, session["route_id"]
+            )
 
     except KindMapException as e:
         await manager.send_error(user_id, e.message, e.code)
@@ -605,7 +632,17 @@ async def handle_end_navigation(user_id: str):
     session = get_redis_client().get_session(user_id)
 
     if session:
-        route_id = session.get("route_id")
+        route_id_from_client = session.get("route_id")
+
+        session = get_redis_client().get_session(user_id)
+        if session:
+            # route_id 검증 => 잘못된 삭제 방지
+            if route_id_from_client and session.get("route_id") != route_id_from_client:
+                logger.warning(f"end_navigation route_id 불일치: user={user_id}")
+                await manager.send_error(
+                    user_id, "경로 ID가 일치하지 않습니다.", "ROUTE_ID_MISMATCH"
+                )
+            return
 
         # Redis 세션 삭제 => 내브 구현에 직접 접근하는 방식은 위험
         # get_redis_client().redis_client.delete(f"session:{user_id}")
@@ -613,17 +650,19 @@ async def handle_end_navigation(user_id: str):
 
         # 종료 이벤트 저장 (게스트는 스킵)
         if not user_id.startswith("temp_"):
-            save_navigation_event.delay(user_id, "navigation_ended", {}, route_id)
+            save_navigation_event.delay(
+                user_id, "navigation_ended", {}, route_id_from_client
+            )
 
         await manager.send_message(
             user_id,
             {
                 "type": "navigation_ended",
                 "message": "내비게이션을 종료했습니다",
-                "route_id": route_id,
+                "route_id": route_id_from_client,
             },
         )
 
-        logger.info(f"내비게이션 종료: user={user_id}, route_id={route_id}")
+        logger.info(f"내비게이션 종료: user={user_id}, route_id={route_id_from_client}")
     else:
         await manager.send_error(user_id, "활성 세션이 없습니다", "NO_ACTIVE_SESSION")

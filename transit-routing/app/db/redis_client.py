@@ -3,7 +3,7 @@ import json
 from typing import Optional, Dict
 from datetime import datetime
 
-from app.core.config import settings
+from app.core.config import settings, SESSION_TTL_SECONDS
 
 
 class RedisSessionManager:
@@ -40,12 +40,14 @@ class RedisSessionManager:
             "selected_route_rank": 1,  # 현재 선택된 경로 순위
             "last_update": datetime.now().isoformat(),
         }
-        return self.redis_client.setex(session_key, 14400, json.dumps(session_data))
+        return self.redis_client.setex(
+            session_key, SESSION_TTL_SECONDS, json.dumps(session_data)
+        )
 
     def delete_session(self, user_id: str) -> bool:
         """
         delete session
-        
+
         Args:
             user_id: 사용자 ID
         Returns:
@@ -81,7 +83,9 @@ class RedisSessionManager:
         session["all_routes"] = json.dumps(all_routes)
         session["last_update"] = datetime.now().isoformat()
 
-        return self.redis_client.setex(f"session:{user_id}", 14400, json.dumps(session))
+        return self.redis_client.setex(
+            f"session:{user_id}", SESSION_TTL_SECONDS, json.dumps(session)
+        )
 
     def get_session(self, user_id: str) -> Optional[Dict]:
         """user_id를 받아 세션 가져오기"""
@@ -108,7 +112,9 @@ class RedisSessionManager:
             session["route_lines"] = json.dumps(session["route_lines"])
             session["transfer_stations"] = json.dumps(session["transfer_stations"])
             session["transfer_info"] = json.dumps(session["transfer_info"])
-            self.redis_client.setex(f"session:{user_id}", 14400, json.dumps(session))
+            self.redis_client.setex(
+                f"session:{user_id}", SESSION_TTL_SECONDS, json.dumps(session)
+            )
 
 
 def init_redis():
