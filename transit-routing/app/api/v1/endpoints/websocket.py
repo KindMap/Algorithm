@@ -280,7 +280,7 @@ async def handle_start_navigation(
     user_id: str, data: dict, pathfinding_service: PathfindingService
 ):
     """
-    상위 3개 경로를 계산하여 반환 + pydantic 모델 사용 및 로그인 시 유저 정보 기본 세팅 적용
+    입력받은 경로에 맞춰 경로 안내
     """
 
     # 입력값 검증

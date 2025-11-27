@@ -103,10 +103,14 @@ DEFAULT_TRANSFER_DISTANCE = 133.09
 
 # 장애 유형별 epsilon => v4 : eopsilon 강화
 EPSILON_CONFIG = {
-    "PHY": 0.08,  # 휠체어: 보수적 (환승 중요)
-    "VIS": 0.10,  # 시각장애: 균형
-    "AUD": 0.10,  # 청각장애: 균형
-    "ELD": 0.06,  # 고령자: 매우 보수적 (변화에 민감)
+    "PHY": 0.04,  # 휠체어: 보수적 (환승 중요)
+    "VIS": 0.05,  # 시각장애: 균형
+    "AUD": 0.05,  # 청각장애: 균형
+    "ELD": 0.02,  # 고령자: 매우 보수적 (변화에 민감)
 }
 
 ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1", "0.0.0.0"]
+
+# 세션 TTL 설정
+SESSION_TTL_SECONDS: int = int(os.getenv("SESSION_TTL_SECONDS", 1800))
+# 30 m => 모니터링하면서 수정 필
