@@ -37,7 +37,7 @@ class Settings:
     # ALLOWED_HOSTS(X) => ALLOWED_ORIGINS
     ALLOWED_ORIGINS: list[str] = os.getenv(
         "ALLOWED_ORIGINS",
-        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com/",
+        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com,https://kindmap-for-you.cloud",
     ).split(",")
 
     @property

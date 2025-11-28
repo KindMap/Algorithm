@@ -30,7 +30,7 @@ services:
       - /home/ec2-user/.env
     environment:
       # 배포 환경에 필요한 CORS 오리진 추가 (필요시 도메인 추가)
-      ALLOWED_ORIGINS: "http://localhost:3000,http://35.92.117.143,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com"
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://35.92.117.143,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com,https://kindmap-for-you.cloud"
     # Nginx를 통해서만 접속하므로 외부 포트 노출을 막고 내부에만 노출
     expose:
       - "8001"
