@@ -48,7 +48,7 @@ class Scenario(HttpUser):
         user_account = random.choice(self.test_accounts)
 
         response = self.client.post(
-            "/api/login",
+            "/api/v1/auth/login",
             json={"email": user_account["email"], "password": user_account["password"]},
         )
 
