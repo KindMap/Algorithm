@@ -42,7 +42,6 @@ env/
 *.ipynb_checkpoints/
 
 # Testing
-test/
 pytest.ini
 .pytest_cache/
 .coverage
