@@ -49,11 +49,14 @@ class Scenario(HttpUser):
 
         response = self.client.post(
             "/api/v1/auth/login",
-            json={"email": user_account["email"], "password": user_account["password"]},
+            json={
+                "username": user_account["email"],
+                "password": user_account["password"],
+            },
         )
 
         if response.status_code != 200:
-            print(f"Login failed ({user_account['email']}): {response.status_code}")
+            print(f"Login failed: {response.status_code} - {response.text}")
             self.stop()
             # runner.quit() 대신 해당 유저 정지로 수정
 
