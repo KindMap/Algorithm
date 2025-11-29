@@ -42,10 +42,10 @@ def initialize_cache():
             return
 
         # 테스트 모드 체크: DB 연결 스킵 => for local unit test
-        if os.getenv("TESTING") == "true":
-            _cache_init = True
-            logger.info("테스트 모드: 캐시 초기화 스킵")
-            return
+        # if os.getenv("TESTING") == "true":
+        #     _cache_init = True
+        #     logger.info("테스트 모드: 캐시 초기화 스킵")
+        #     return
 
         from app.db.database import (
             get_all_stations,

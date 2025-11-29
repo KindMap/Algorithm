@@ -318,7 +318,7 @@ if __name__ == "__main__":
         ws_ping_interval=20.0,  # 20초마다 ping
         ws_ping_timeout=20.0,  # 20초 timeout
         # 성능 설정
-        workers=1,  # WebSocket은 단일 worker 권장
+        workers=4,  # WebSocket은 단일 worker 권장
         limit_concurrency=1000,
         limit_max_requests=10000,
         timeout_keep_alive=30,

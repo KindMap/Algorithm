@@ -39,6 +39,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+    # worker <- 4
+    # EC2 vCPU 개수 * 2 + 1 권장 t3.medium 기준 3~5개 적당
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 4
+
     # 프로덕션에서는 코드 볼륨 마운트 제거 (이미지 내 코드 사용)
     healthcheck:
       test:
