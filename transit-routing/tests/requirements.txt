@@ -1,0 +1,65 @@
+# Core dependencies
+numpy>=1.26.0
+pandas>=2.1.0
+
+# Scientific computing
+scipy>=1.11.0
+
+# Visualization
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Graph algorithms
+networkx>=3.2
+
+# Configuration
+pyyaml>=6.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.65.0
+
+# Type hints
+types-PyYAML>=6.0.12
+
+# Database
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# FastAPI & Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Task Queue (if needed)
+redis==5.0.1
+celery==5.3.4
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+pytest-benchmark>=4.0.0
+memory-profiler>=0.61.0
+
+# Load test
+locust
+
+# Mock 및 유틸리티
+faker==20.1.0
+
+# Code quality
+black>=23.3.0
+flake8>=6.0.0
+mypy>=1.4.0
+
+# Auth
+python-jose[cryptography]==3.3.0  # JWT
+passlib[bcrypt]==1.7.4            # 비밀번호 해싱
+python-multipart==0.0.6           # OAuth2
+bcrypt==3.2.2                     # 호환성 문제 해결을 위한 버전 고정
+slowapi==0.1.9                    # Rate limiting
+email-validator
+
