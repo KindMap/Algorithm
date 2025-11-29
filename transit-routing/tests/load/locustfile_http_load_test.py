@@ -47,18 +47,31 @@ class Scenario(HttpUser):
 
         user_account = random.choice(self.test_accounts)
 
+        # OAuth2PasswordRequestForm 형식 (application/x-www-form-urlencoded) 사용
         response = self.client.post(
             "/api/v1/auth/login",
-            json={
+            data={  # json이 아닌 data 사용
                 "username": user_account["email"],
                 "password": user_account["password"],
             },
+            name="/api/v1/auth/login",
         )
 
         if response.status_code != 200:
-            print(f"Login failed: {response.status_code} - {response.text}")
+            print(
+                f"Login failed for {user_account['email']}: "
+                f"{response.status_code} - {response.text}"
+            )
             self.stop()
-            # runner.quit() 대신 해당 유저 정지로 수정
+            return
+
+        # 로그인 성공 시 토큰 저장 (필요시 사용)
+        try:
+            token_data = response.json()
+            self.access_token = token_data.get("access_token")
+        except Exception as e:
+            print(f"Failed to parse login response: {e}")
+            self.stop()
 
     @task
     def find_path_scenario(self):
@@ -79,13 +92,36 @@ class Scenario(HttpUser):
             "disability_type": selected_type,
         }
 
-        # 경로 찾기 API 호출
-        self.client.post("/api/calculate", json=payload, name="/api/calculate")
+        # 경로 찾기 API 호출 - 올바른 엔드포인트: /api/v1/navigation/calculate
+        response = self.client.post(
+            "/api/v1/navigation/calculate",
+            json=payload,
+            name="/api/v1/navigation/calculate",
+        )
+
+        # 응답 검증
+        if response.status_code != 200:
+            print(
+                f"Path calculation failed ({origin} -> {destination}): "
+                f"{response.status_code} - {response.text}"
+            )
+        else:
+            # 성공 시 응답 데이터 확인 (디버깅용)
+            try:
+                result = response.json()
+                # 경로가 제대로 계산되었는지 간단히 확인
+                if "routes" not in result:
+                    print(
+                        f"Warning: Unexpected response format for "
+                        f"{origin} -> {destination}"
+                    )
+            except Exception as e:
+                print(f"Failed to parse response: {e}")
 
 
 class StepLoadShape(LoadTestShape):
     """
-    시간에 따라 사용자 수를 단계적으로 제어하는 클래스입니다.
+    시간에 따라 사용자 수를 단계적으로 제어
     목표: 10 -> 25 -> 50 -> 75 -> 100명
     """
 
