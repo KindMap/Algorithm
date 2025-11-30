@@ -310,8 +310,8 @@ class McRaptor:
             if not Q:
                 break
 
-            logger.info(f"=== Round {round_num}: 마킹 {len(Q)}개 시작 ===")
-            logger.info(f"현재 전체 라벨 수: {sum(len(v) for v in labels.values())}개")
+            # logger.info(f"=== Round {round_num}: 마킹 {len(Q)}개 시작 ===")
+            # logger.info(f"현재 전체 라벨 수: {sum(len(v) for v in labels.values())}개")
 
             Q_next_round = set()
 
