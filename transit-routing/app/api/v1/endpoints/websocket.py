@@ -4,6 +4,7 @@ FAST API Websocket endpoint
 
 import logging
 import uuid
+import time
 from typing import Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status
 from pydantic import ValidationError
@@ -164,7 +165,7 @@ async def websocket_endpoint(
             token = auth_header.split(" ")[1]
 
     if token is None:
-        # [수정] 토큰이 없으면 거부하는 대신, 게스트로 간주하고 로그만 남김
+        # 토큰이 없으면 거부하는 대신, 게스트로 간주하고 로그만 남김
         # 단, user_id가 "temp_"로 시작하는지 확인하여 보안 유지
         if user_id.startswith("temp_"):
             logger.info(f"게스트 연결 허용: {user_id}")
@@ -208,9 +209,7 @@ async def websocket_endpoint(
             await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
             return
 
-    # -------------------------------------------------------
     # 2. 연결 수립 및 메인 로직
-    # -------------------------------------------------------
 
     # manager.connect 내부에서 accept() 수행
     await manager.connect(websocket, user_id)

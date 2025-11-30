@@ -13,7 +13,7 @@ from app.api.deps import get_current_user
 from app.models.domain import User
 from typing import Optional
 import uuid
-
+import time
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ async def calculate_route(
     service: PathfindingService = Depends(get_pathfinding_service),
 ):
     """
-    경로 계산 (REST API)
+    경로 계산 (REST API) + cache metric logging 추가
 
     WebSocket을 사용하지 않는 경우를 위한 대안
     로그인하지 않았을 경우 -> request의 값 사용
@@ -78,10 +78,18 @@ async def calculate_route(
             f"REST 경로 계산: {request.origin} → {request.destination}, type={request.disability_type}"
         )
 
+        start_time = time.time()
+
         result = service.calculate_route(
             origin_name=request.origin,
             destination_name=request.destination,
             disability_type=final_disability_type,
+        )
+
+        elapsed_time = time.time() - start_time
+        logger.info(
+            f"✓ REST API 응답 성공: {request.origin} → {request.destination}, "
+            f"응답시간={elapsed_time:.2f}s"
         )
 
         # route_id 생성 및 추가

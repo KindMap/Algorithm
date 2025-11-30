@@ -21,6 +21,20 @@ class Settings:
 
     REDIS_HOST: str = os.getenv("REDIS_HOST", "redis")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", 6379))
+    # 세션 TTL 설정
+    SESSION_TTL_SECONDS: int = int(
+        os.getenv("SESSION_TTL_SECONDS", 1800)
+    )  # 30 m => 모니터링하면서 수정 필
+
+    # 경로 캐시 TTL
+    ROUTE_CACHE_TTL_SECONDS: int = int(
+        os.getenv("ROUTE_CACHE_TTL_SECONDS", 3600)
+    )  # 1시간
+
+    # 캐시 메트릭 활성화 플래그
+    ENABLE_CACHE_METRICS: bool = (
+        os.getenv("ENABLE_CACHE_METRICS", "true").lower() == "true"
+    )
 
     CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/1")
     CELERY_RESULT_BACKEND: str = os.getenv(
