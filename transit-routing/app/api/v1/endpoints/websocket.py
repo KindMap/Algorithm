@@ -1,7 +1,6 @@
 """
 FAST API Websocket endpoint
 """
-
 import logging
 import uuid
 import time

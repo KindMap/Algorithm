@@ -65,8 +65,11 @@ class PathfindingService:
                 f"{destination_name}({destination_cd}), 유형={disability_type}"
             )
 
-            # 캐시 키 생성
-            cache_key = f"route:{origin_cd}:{destination_cd}"
+            # 캐시 키 생성 => 출발지, 도착역, 교통약자 유형
+            # 경로 탐색 시각이 해당 키에서 제외되는 이유
+            # => 현재 혼잡도는 30분을 기준으로 측정됨. 경로 탐색 결과 캐시는 30분의 TTL을 가지기 때문에
+            # => 굳이 시각을 포함하지 않아도 됨
+            cache_key = f"route:{origin_cd}:{destination_cd}:{disability_type}"
 
             # 캐시 확인
             cached_result = self.redis_client.get_cached_route(cache_key)
@@ -78,7 +81,13 @@ class PathfindingService:
                     f"캐시에서 경로 반환: {origin_name} → {destination_name}, "
                     f"응답시간={elapsed_time*1000:.1f}ms"
                 )
-                self._log_cache_metrics()
+                self._log_cache_metrics(
+                    cache_hit=True,
+                    response_time_ms=elapsed_time * 1000,
+                    origin=origin_name,
+                    destination=destination_name,
+                    disability_type=disability_type,
+                )
                 return cached_result
 
             # 캐시 미스 -> 경로 계산 수행
@@ -195,8 +204,8 @@ class PathfindingService:
         origin: str,
         destination: str,
         disability_type: str,
-        calculation_time_ms: float = None,
-        routes_found: int = None,
+        calculation_time_ms: Optional[float] = None,
+        routes_found: Optional[int] = None,
     ) -> None:
         """
         캐시 메트릭 로깅 => ELK Stack, CloudWatch 등에서 분석하기
