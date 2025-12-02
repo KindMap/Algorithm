@@ -37,6 +37,9 @@ class Scenario(HttpUser):
         "고속터미널",
         "신도림",
         "선릉",
+        "잠실",
+        "사당",
+        "가산디지털단지",
     ]
 
     def on_start(self):
@@ -121,33 +124,26 @@ class Scenario(HttpUser):
 
 class StepLoadShape(LoadTestShape):
     """
-    시간에 따라 사용자 수를 단계적으로 제어
-    목표: 10 -> 25 -> 50 -> 75 -> 100명
+    300명까지 점진적 부하 증가 (Step Load)
+    패턴: 50 -> 100 -> 150 -> 200 -> 250 -> 300 (유지)
     """
 
-    # 각 단계 설정: (지속시간_초, 목표_유저_수, 초당_생성_수)
     stages = [
-        {"duration": 60, "users": 10, "spawn_rate": 5},  # 1분까지 10명 유지
-        {
-            "duration": 120,
-            "users": 25,
-            "spawn_rate": 5,
-        },  # 2분까지 25명으로 증가 후 유지
-        {
-            "duration": 180,
-            "users": 50,
-            "spawn_rate": 10,
-        },  # 3분까지 50명으로 증가 후 유지
-        {
-            "duration": 240,
-            "users": 75,
-            "spawn_rate": 10,
-        },  # 4분까지 75명으로 증가 후 유지
-        {
-            "duration": 300,
-            "users": 100,
-            "spawn_rate": 10,
-        },  # 5분까지 100명으로 증가 후 유지
+        # 1단계: 1분 동안 50명까지 증가 (초당 2명씩 투입)
+        {"duration": 60, "users": 50, "spawn_rate": 2},
+        # 2단계: 2분 시점까지 100명으로 증가
+        {"duration": 120, "users": 100, "spawn_rate": 5},
+        # 3단계: 3분 시점까지 150명으로 증가
+        {"duration": 180, "users": 150, "spawn_rate": 5},
+        # 4단계: 4분 시점까지 200명으로 증가
+        {"duration": 240, "users": 200, "spawn_rate": 10},
+        # 5단계: 5분 시점까지 250명으로 증가 (가속 구간)
+        {"duration": 300, "users": 250, "spawn_rate": 10},
+        # 6단계: 6분 시점까지 300명 도달
+        {"duration": 360, "users": 300, "spawn_rate": 10},
+        # 7단계: [중요] 300명 상태로 4분간 유지 (총 10분 테스트)
+        # 이 구간에서 시스템이 300명을 버티는지 확인합니다.
+        {"duration": 600, "users": 300, "spawn_rate": 10},
     ]
 
     def tick(self):
@@ -158,4 +154,4 @@ class StepLoadShape(LoadTestShape):
                 tick_data = (stage["users"], stage["spawn_rate"])
                 return tick_data
 
-        return None  # 모든 단계가 끝나면 테스트 종료
+        return None
