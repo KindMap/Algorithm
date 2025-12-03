@@ -1,6 +1,7 @@
 """
 FAST API Websocket endpoint
 """
+
 import logging
 import uuid
 import time
@@ -20,6 +21,9 @@ from app.db.redis_client import init_redis
 from app.core.exceptions import KindMapException
 from app.tasks.tasks import save_location_history, save_navigation_event
 from app.auth.security import decode_token  # JWT 디코딩 함수 임포트
+
+# Redis Pub/Sub
+from app.services.redis_pubsub_manager import get_pubsub_manager
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,7 @@ class ConnectionManager:
 
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
+        self.pubsub_manager = get_pubsub_manager()  # Redis Pub/Sub
 
     async def connect(self, websocket: WebSocket, user_id: str):
         # 기존 연결 확인 및 정리
@@ -112,13 +117,50 @@ class ConnectionManager:
             )
 
     async def send_message(self, user_id: str, message: dict):
-        """특정 사용자에게 메시지 전송"""
+        """
+        특정 사용자에게 메시지 전송
+
+        - 로컬에 연결 존재 => 직접 전송
+        - 로컬에 연결 없음 => Redis Pub/Sub으로 발행 => 다른 백엔드에서 전달
+        """
+        # 로컬 연결 확인
+        # 로컬에 존재 => 직접 전송
         if user_id in self.active_connections:
             try:
                 await self.active_connections[user_id].send_json(message)
+                logger.debug(f"로컬 전송 성공: user_id={user_id}")
+                return
             except Exception as e:
-                logger.error(f"메시지 전송 실패 (user={user_id}): {e}")
+                logger.error(f"로컬 메시지 전송 실패 (user={user_id}): {e}")
                 self.disconnect(user_id)
+
+        # 로컬에 없음 => Redis Pub/Sub으로 발행
+        # pubsub_manger <- 활성화된 상태여야 함
+        if self.pubsub_manager.enabled:
+            await self.pubsub_manager.publish(user_id, message)
+            logger.debug(f"Redis 발행: user_id={user_id} (다른 백엔드로 전달)")
+        else:
+            logger.warning(
+                f"메시지 전송 실패: user_id={user_id} (로컬 연결 없음, Pub/Sub 비활성화)"
+            )
+
+    async def handle_pubsub_message(self, user_id: str, message: dict):
+        """
+        Redis Pub/Sub로부터 수신한 메시지 처리
+
+        [호출 경로]
+        RedisPubSubManager._handle_message() → 이 메서드 → WebSocket 전송
+        """
+        if user_id in self.active_connections:
+            try:
+                await self.active_connections[user_id].send_json(message)
+                logger.debug(f"Pub/Sub 메시지 전송 성공: user_id={user_id}")
+            except Exception as e:
+                logger.error(f"Pub/Sub 메시지 전송 실패: {e}")
+                self.disconnect(user_id)
+        else:
+            # 이 백엔드에는 연결이 없음 => 다른 백엔드에서 처리할 것
+            logger.debug(f"Pub/Sub 메시지 무시: user_id={user_id} (로컬 연결 없음)")
 
     async def send_error(self, user_id: str, error_message: str, code: str = None):
         """에러 메시지 전송"""

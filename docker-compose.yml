@@ -29,9 +29,10 @@ services:
     env_file:
       - .env
     environment:
-      # CORS 설정 - .env 파일 없이도 자동으로 설정됨
-      # environment 섹션이 env_file보다 우선순위가 높음
-      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://35.92.117.143,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com"
+      ALLOWED_ORIGINS: "..."
+      # Redis Pub/Sub 환경변수 추가
+      REDIS_PUBSUB_ENABLED: "true"
+      REDIS_PUBSUB_CHANNEL: "kindmap_events"
     ports:
       - "8001:8001"
     networks:
@@ -41,6 +42,8 @@ services:
         condition: service_healthy
     volumes:
       - ./transit-routing:/app
+    # [변경] workers=1로 설정
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 1 --ws-ping-interval 20 --ws-ping-timeout 20
     healthcheck:
       test:
         [

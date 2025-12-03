@@ -32,7 +32,7 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 python-multipart==0.0.6
 
-# Task Queue (if needed)
+# Task Queue
 redis==5.0.1
 celery==5.3.4
 
@@ -63,3 +63,5 @@ bcrypt==3.2.2                     # 호환성 문제 해결을 위한 버전 고
 slowapi==0.1.9                    # Rate limiting
 email-validator
 
+# hiredis <- 성능 향상용 C library
+redis[hiredis]>=5.0.0

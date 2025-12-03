@@ -12,7 +12,14 @@ services:
       - "6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # Pub/Sub 사용 => 메모리 더 필요 => 메모리 증가
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --notify-keyspace-events ""
+      --client-output-buffer-limit pubsub 32mb 8mb 60
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -20,10 +27,11 @@ services:
       retries: 3
       start_period: 5s
 
+  # 백엔드 컨테이너 스케일링
   fastapi:
     # 빌드된 이미지를 사용 (깃허브 액션이 변수 치환)
     image: ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}
-    container_name: kindmap-fastapi
+    # container_name: kindmap-fastapi => scailing을 위해 container_name 제거
     restart: unless-stopped
     # EC2 내부의 .env 파일 사용
     env_file:
@@ -31,6 +39,8 @@ services:
     environment:
       # 배포 환경에 필요한 CORS 오리진 추가 (필요시 도메인 추가)
       ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://35.92.117.143,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com,https://kindmap-for-you.cloud"
+      REDIS_PUBSUB_ENABLED: "true"
+      REDIS_PUBSUB_CHANNEL: "kindmap_events"
     # Nginx를 통해서만 접속하므로 외부 포트 노출을 막고 내부에만 노출
     expose:
       - "8001"
@@ -40,11 +50,21 @@ services:
       redis:
         condition: service_healthy
 
-    # worker <- 4
-    # EC2 vCPU 개수 * 2 + 1 권장 t3.medium 기준 3~5개 적당
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 4
+    # workers <- 1로 다시 변경 for websocket
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 1 --ws-ping-interval 20 --ws-ping-timeout 20
 
     # 프로덕션에서는 코드 볼륨 마운트 제거 (이미지 내 코드 사용)
+
+    # 배포 설정으로 3개 인스턴스 실행
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
     healthcheck:
       test:
         [
@@ -66,8 +86,7 @@ services:
       - "80:80"
       - "443:443" # https 사용을 위한 443 port open
     depends_on:
-      fastapi:
-        condition: service_healthy
+      - fastapi
     networks:
       - kindmap-network
     # 호스트의 인증서 폴더 통째로 연결
