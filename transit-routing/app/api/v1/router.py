@@ -3,7 +3,7 @@
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import navigation, stations, websocket, auth
+from app.api.v1.endpoints import navigation, stations, websocket, auth, analytics
 
 # API v1 main router
 api_router = APIRouter()
@@ -16,3 +16,5 @@ api_router.include_router(stations.router, prefix="/stations", tags=["stations"]
 api_router.include_router(websocket.router, tags=["websocket"])
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+
+api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])

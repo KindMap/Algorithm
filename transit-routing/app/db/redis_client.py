@@ -224,7 +224,7 @@ class RedisSessionManager:
         경로 캐시 무효화 <- 데이터 업데이트 시 사용, default : 모든 경로 캐시 삭제
         """
         try:
-            keys = self.redis_client.scan(pattern)
+            keys = list(self.redis_client.scan_iter(match=pattern))
             if keys:
                 deleted_count = self.redis_client.delete(*keys)
                 logger.info(
