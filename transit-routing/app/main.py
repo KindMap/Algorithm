@@ -17,6 +17,10 @@ from app.db.cache import initialize_cache
 from app.db.redis_client import init_redis
 from app.api.v1.router import api_router
 
+# Redis Pub/Sub
+from app.services.redis_pubsub_manager import get_pubsub_manager
+from app.api.v1.endpoints.websocket import manager as websocket_manager
+
 # 로깅 설정
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -34,11 +38,13 @@ async def lifespan(app: FastAPI):
     서버 시작 시 실행:
     - PostgreSQL 연결 풀 초기화
     - 데이터 캐시 초기화 (역, 구간, 환승역 정보)
-    - Redis 클라이언트 초기화
+    - Redis 클라이언트 초기화 (세션 관리용)
+    - Redis Pub/Sub 초기화 및 리스너 시작
+    - Websocket 메시지 핸들러 등록 및 리스너 시
 
     서버 종료 시 실행:
-    - PostgreSQL 연결 풀 정리
-    - 리소스 해제
+    - Redis Pub/Sub 종료
+    - PostgreSQL 연결 풀 종
     """
     # ========== Startup ==========
     logger.info("=" * 60)
@@ -47,30 +53,36 @@ async def lifespan(app: FastAPI):
 
     try:
         # 1. PostgreSQL 연결 풀 초기화
-        logger.info("1/3 PostgreSQL 연결 풀 초기화 중...")
+        logger.info("1/4 PostgreSQL 연결 풀 초기화 중...")
         initialize_pool()
-        logger.info("✓ PostgreSQL 연결 풀 초기화 완료")
 
-        # 2. 데이터 캐시 초기화 (역, 구간, 환승역)
-        logger.info("2/3 데이터 캐시 로딩 중...")
+        # 2. 데이터 캐시 초기화
+        logger.info("2/4 역 정보 캐시 초기화 중...")
         initialize_cache()
-        logger.info("✓ 데이터 캐시 초기화 완료")
 
-        # 3. Redis 클라이언트 초기화
-        logger.info("3/3 Redis 클라이언트 초기화 중...")
-        redis_client = init_redis()
-        logger.info("✓ Redis 클라이언트 초기화 완료")
+        # 3. Redis 클라이언트 초기화 (세션 관리용)
+        logger.info("3/4 Redis 세션 클라이언트 초기화 중...")
+        init_redis()
+
+        # 4. Redis Pub/Sub 초기화 및 리스너 시작
+        logger.info("4/4 Redis Pub/Sub 초기화 중...")
+        pubsub_manager = get_pubsub_manager()
+        await pubsub_manager.initialize()
+
+        # WebSocket 메시지 핸들러 등록 및 리스너 시작
+        await pubsub_manager.start_listening(
+            message_handler=websocket_manager.handle_pubsub_message
+        )
 
         logger.info("=" * 60)
-        logger.info(f"✅ 서버 준비 완료: http://0.0.0.0:{settings.PORT}")
-        logger.info(f"📚 API 문서: http://0.0.0.0:{settings.PORT}/docs")
-        logger.info(f"🔌 WebSocket: ws://0.0.0.0:{settings.PORT}/api/v1/ws/{{user_id}}")
+        logger.info("KindMap Backend 시작 완료!")
         logger.info("=" * 60)
 
     except Exception as e:
         logger.error(f"❌ 초기화 실패: {e}", exc_info=True)
         raise
 
+    # application 실행 <- yield로 제어 반
     yield
 
     # ========== Shutdown ==========
@@ -79,13 +91,17 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
 
     try:
-        # PostgreSQL 연결 풀 정리
-        logger.info("PostgreSQL 연결 풀 정리 중...")
+        # 1. Redis Pub/Sub 종료
+        logger.info("1/2 Redis Pub/Sub 종료 중...")
+        pubsub_manager = get_pubsub_manager()
+        await pubsub_manager.close()
+
+        # 2. PostgreSQL 연결 풀 종료
+        logger.info("2/2 PostgreSQL 연결 풀 종료 중...")
         close_pool()
-        logger.info("✓ PostgreSQL 연결 풀 정리 완료")
 
         logger.info("=" * 60)
-        logger.info("✅ 서버 종료 완료")
+        logger.info("✓ KindMap Backend 종료 완료")
         logger.info("=" * 60)
 
     except Exception as e:
@@ -124,7 +140,7 @@ app = FastAPI(
     - ✅ 환승 안내
     - ✅ 경로 재계산
     """,
-    lifespan=lifespan,
+    lifespan=lifespan,  # 생명주기 관리자 등록
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -142,7 +158,7 @@ app.add_middleware(
 )
 
 # API 라우터 등록
-app.include_router(api_router, prefix="/v1") # 중복 접두사 문제 발생 수정
+app.include_router(api_router, prefix="/v1")  # 중복 접두사 문제 발생 수정
 
 
 # ========== Health Check Endpoints ==========
