@@ -128,8 +128,14 @@ class PathfindingService:
             # 각 경로 정보 생성
             routes_info = []
             for rank, (route, score) in enumerate(top_3_routes, start=1):
-                route_sequence = route.reconstruct_route()
-                route_lines = route.reconstruct_lines()
+                route_sequence = route.reconstruct_route(
+                    line_stations=self.raptor.line_stations,
+                    station_order_map=self.raptor.station_order_map,
+                )
+                route_lines = route.reconstruct_lines(
+                    line_stations=self.raptor.line_stations,
+                    station_order_map=self.raptor.station_order_map,
+                )
                 transfer_info = route.reconstruct_transfer_info()
                 transfer_stations = [t[0] for t in transfer_info]
 

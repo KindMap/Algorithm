@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 class GuidanceService:
     """실시간 경로 안내 서비스 클래스"""
 
+    # 경로 이탈 판단 거리 (미터)
+    ROUTE_DEVIATION_THRESHOLD = 800  # 800m
+
     def __init__(self, redis_client: RedisSessionManager):
         self.redis_client = redis_client
         self.distance_calc = DistanceCalculator()
@@ -83,20 +86,49 @@ class GuidanceService:
             f"안내 계산: user={user_id}, current={current_station_cd}, route_len={len(route_sequence)}"
         )
 
-        # 경로 상에서 현재 위치 찾기
-        try:
-            current_idx = route_sequence.index(current_station_cd)
-        except ValueError:
-            # 경로 이탈 감지
-            nearest_name = get_station_name_by_code(current_station_cd)
-            logger.warning(f"경로 이탈: user={user_id}, nearest={nearest_name}")
+        # 경로 상의 모든 역까지의 거리 계산
+        min_distance = float('inf')
+        nearest_route_station = None
+
+        for station_cd in route_sequence:
+            station_info = self.stations.get(station_cd)
+            if not station_info:
+                continue
+
+            distance = self.distance_calc.calculate_distance(
+                lat, lon,
+                station_info["lat"], station_info["lng"]
+            )
+
+            if distance < min_distance:
+                min_distance = distance
+                nearest_route_station = station_cd
+
+        # Threshold 기반 경로 이탈 판단
+        if min_distance > self.ROUTE_DEVIATION_THRESHOLD:
+            # 경로 이탈: 800m 이내에 경로 상의 역이 없음
+            nearest_overall = get_station_name_by_code(current_station_cd)
+            logger.warning(
+                f"경로 이탈: user={user_id}, nearest_overall={nearest_overall}, "
+                f"distance_to_route={min_distance:.1f}m, threshold={self.ROUTE_DEVIATION_THRESHOLD}m"
+            )
 
             return {
                 "recalculate": True,
                 "message": "경로를 이탈했습니다. 경로를 다시 계산합니다.",
                 "current_location": current_station_cd,
-                "nearest_station": nearest_name,
+                "nearest_station": nearest_overall,
+                "deviation_distance": round(min_distance, 1),
             }
+
+        # 경로 유지: 가장 가까운 경로 상의 역 사용
+        current_station_cd = nearest_route_station
+        try:
+            current_idx = route_sequence.index(current_station_cd)
+        except ValueError:
+            # 발생하지 않아야 하지만 안전장치
+            logger.error(f"경로 역 인덱스 찾기 실패: {current_station_cd}")
+            return {"recalculate": True, "message": "경로 오류가 발생했습니다."}
 
         # 목적지 도착 확인
         if current_station_cd == destination_cd:
