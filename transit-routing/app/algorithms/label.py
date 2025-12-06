@@ -65,6 +65,11 @@ class Label:
         Returns:
             완전한 역 순서 리스트 (중간역 포함)
         """
+        # [디버깅] 데이터가 들어오는지 확인
+        if station_order_map is None:
+            print("🚨 [ERROR] reconstruct_route 호출됨, 하지만 station_order_map이 None입니다!")
+        else:
+            print(f"✅ [OK] reconstruct_route 호출됨, 데이터 개수: {len(station_order_map)}")
         # Phase 1 : 모든 라벨 수집 leaf -> root
         labels_path = []
         cur = self
@@ -74,7 +79,7 @@ class Label:
         labels_path = labels_path[::-1]  # root -> leaf
 
         # helper data가 없으면 원래 동작으로 fallback 하위 호환성을 위함
-        if line_stations is None or station_order_map is None:
+        if station_order_map is None:
             return [label.current_station_cd for label in labels_path]
 
         # Phase 2 : 중간 역 포함한 완전한 경로 구축
@@ -103,8 +108,6 @@ class Label:
                     prev_label.current_station_cd,
                     curr_label.current_station_cd,
                     curr_label.current_line,
-                    curr_label.current_direction,
-                    line_stations,
                     station_order_map,
                 )
                 # intermediates는 목적지 포함, 출발지 제외
@@ -115,7 +118,7 @@ class Label:
         self, line_stations: Dict = None, station_order_map: Dict = None
     ) -> List[str]:
         """전체 노선 정보 재구성 -> route_sequence와 동이리 길이로 확장"""
-        if line_stations is None or station_order_map is None:
+        if station_order_map is None:
             # 원래 동작 (하위 호환성을 위함)
             lines = []
             cur = self
@@ -153,8 +156,6 @@ class Label:
                     prev_label.current_station_cd,
                     curr_label.current_station_cd,
                     curr_label.current_line,
-                    curr_label.current_direction,
-                    line_stations,
                     station_order_map,
                 )
                 # 각 중간 역에 대해 노선 추가
@@ -327,54 +328,54 @@ def _get_intermediate_stations(
     from_station_cd: str,
     to_station_cd: str,
     line: str,
-    direction: str,
-    line_stations: Dict,
     station_order_map: Dict,
 ) -> List[str]:
     """
     [수정된 버전] 리스트 순회 대신 station_order(순서 번호)를 사용하여 수학적으로 중간 역을 계산합니다.
     """
 
-    # 1. 출발역과 도착역의 순서(Order)를 가져옵니다.
+    # 1. 순서 정보 가져오기
+    # station_order_map 키 구조가 (station_cd, line) 이라고 가정
     from_order = station_order_map.get((from_station_cd, line))
     to_order = station_order_map.get((to_station_cd, line))
 
-    # 데이터가 없으면 도착역만 반환 (Fallback)
     if from_order is None or to_order is None:
-        # [DEBUG] 로그: 순서 정보 누락
-        print(
-            f"[WARN] 순서 정보 없음: {from_station_cd}({from_order}) -> {to_station_cd}({to_order})"
-        )
+        print(f"[WARN] 순서 정보 누락: {from_station_cd}->{to_station_cd} ({line})")
         return [to_station_cd]
 
-    # 2. 순서 차이 계산
-    # 예: 광화문(20) -> 군자(31) 이면 range(21, 32)
-    start_idx = min(from_order, to_order)
-    end_idx = max(from_order, to_order)
-
-    # 3. 해당 범위에 있는 모든 역을 찾습니다. (DB가 완벽하므로 이 방식이 가장 안전함)
-    # station_order_map = { (station_cd, line): order, ... } 구조라고 가정
+    # 2. 범위 검색 (DB의 전체 역을 순회하므로 O(N)이지만, 가장 안전함)
     intermediate_candidates = []
 
+    # [중요] 정방향/역방향에 따라 조건 분기
+    is_ascending = from_order < to_order
+
     for (s_cd, s_line), s_order in station_order_map.items():
-        # 같은 노선이고, 출발~도착 순서 사이에 있는 역만 추출
-        if s_line == line and start_idx < s_order <= end_idx:
+        if s_line != line:
+            continue
+
+        is_in_range = False
+        if is_ascending:
+            # 정방향 (20 -> 22): 20 < s <= 22 (21, 22)
+            if from_order < s_order <= to_order:
+                is_in_range = True
+        else:
+            # 역방향 (22 -> 20): 20 <= s < 22 (20, 21)
+            # 도착지(20)는 포함하고, 출발지(22)는 제외해야 함
+            if to_order <= s_order < from_order:
+                is_in_range = True
+
+        if is_in_range:
             intermediate_candidates.append((s_order, s_cd))
 
-    # 4. 순서대로 정렬
-    # 상행/하행 여부에 따라 정렬 순서를 결정합니다.
-    # from_order < to_order 이면 정방향(오름차순), 반대면 역방향(내림차순)
-    is_ascending = from_order < to_order
+    # 3. 순서대로 정렬
+    # 정방향이면 오름차순(1,2,3), 역방향이면 내림차순(3,2,1)
     intermediate_candidates.sort(key=lambda x: x[0], reverse=not is_ascending)
 
-    # 5. 결과 추출 (역 코드만 리스트로 변환)
-    result_stations = [code for order, code in intermediate_candidates]
+    # 4. 결과 추출
+    result = [code for order, code in intermediate_candidates]
 
-    # [검증] 결과가 비어있다면, 5호선 갈림길 등의 문제로 범위가 꼬인 경우
-    if not result_stations:
-        print(
-            f"[WARN] 중간역 탐색 실패 (범위 내 역 없음): {from_station_cd} -> {to_station_cd}"
-        )
+    if not result:
+        # 갈림길 등으로 인해 범위 내 역이 없으면 도착지만 반환
         return [to_station_cd]
 
-    return result_stations
+    return result
