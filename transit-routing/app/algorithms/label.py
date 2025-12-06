@@ -345,6 +345,28 @@ def _get_intermediate_stations(
     Returns:
         [중간역_1, 중간역_2, ..., to_station_cd]
     """
+
+    # [디버깅 코드 시작] ---------------------------------------------------
+    # 5호선 광화문(2534) -> 군자(2545) 케이스일 때만 로그 출력
+    if line == "5호선" and from_station_cd == "2534":
+        print(f"\n[DEBUG] 🚨 중간역 탐색 시작! ({from_station_cd} -> {to_station_cd})")
+        print(f" - 요청된 방향(Direction): {direction}")
+
+        # 실제 메모리에 로드된 리스트 확인
+        stations_map = line_stations.get((from_station_cd, line))
+        if stations_map:
+            target_list = stations_map.get(direction, [])
+            print(f" - 탐색할 역 리스트({len(target_list)}개): {target_list}")
+
+            # 리스트 안에 목적지가 있는지 확인
+            if to_station_cd in target_list:
+                print(f" - ✅ 리스트 안에 목적지({to_station_cd})가 존재함!")
+            else:
+                print(f" - ❌ 리스트 안에 목적지가 없음! -> 빈 리스트 반환하게 됨")
+        else:
+            print(" - ❌ line_stations 메모리 로드 실패 (Key Error)")
+    # [디버깅 코드 끝] -----------------------------------------------------
+
     # 출발역과 도착역의 순서 가져오기
     from_order = station_order_map.get((from_station_cd, line))
     to_order = station_order_map.get((to_station_cd, line))
