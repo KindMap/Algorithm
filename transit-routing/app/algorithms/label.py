@@ -52,23 +52,114 @@ class Label:
 
     # 중요!!! 역추적 로직!!!
     # leaf -> root 탐색하는 로직과 동일
-    def reconstruct_route(self) -> List[str]:
-        """전체 경로 역추적"""
-        route = []
-        cur = self
-        while cur is not None:
-            route.append(cur.current_station_cd)
-            cur = cur.parent_label
-        return route[::-1]
+    def reconstruct_route(
+        self, line_stations: Dict = None, station_order_map: Dict = None
+    ) -> List[str]:
+        """
+        전체 경로 역추적 + 중간역 포함
 
-    def reconstruct_lines(self) -> List[str]:
-        """전체 노선 정보 재구성"""
-        lines = []
+        Args:
+            line_stations: McRaptor의 line_stations 맵 {(station_cd, line): {"up": [...], "down": [...]}}
+            station_order_map: McRaptor의 station_order_map {(station_cd, line): order}
+
+        Returns:
+            완전한 역 순서 리스트 (중간역 포함)
+        """
+        # Phase 1 : 모든 라벨 수집 leaf -> root
+        labels_path = []
         cur = self
         while cur is not None:
-            lines.append(cur.current_line)
+            labels_path.append(cur)
             cur = cur.parent_label
-        return lines[::-1]
+        labels_path = labels_path[::-1]  # root -> leaf
+
+        # helper data가 없으면 원래 동작으로 fallback 하위 호환성을 위함
+        if line_stations is None or station_order_map is None:
+            return [label.current_station_cd for label in labels_path]
+
+        # Phase 2 : 중간 역 포함한 완전한 경로 구축
+        complete_route = []
+
+        for i, label in enumerate(labels_path):
+            if i == 0:
+                # 출발지
+                complete_route.append(label.current_station_cd)
+                continue
+
+            prev_label = labels_path[i - 1]
+            curr_label = label
+
+            # 환승인지 판단(노선 변화 감지)
+            is_transfer = prev_label.current_line != curr_label.current_line
+
+            if is_transfer:
+                # 환승 : 현재 역만 추가 -> 같은 위치에 다른 station_cd일 수 있음
+                # 중복 방지를 위해 station_cd가 다를 때만 추가
+                if curr_label.current_station_cd != prev_label.current_station_cd:
+                    complete_route.append(curr_label.current_station_cd)
+            else:
+                # 환승 X => 같은 노선 : 중간 역 채우기
+                intermediates = _get_intermediate_stations(
+                    prev_label.current_station_cd,
+                    curr_label.current_station_cd,
+                    curr_label.current_line,
+                    curr_label.current_direction,
+                    line_stations,
+                    station_order_map,
+                )
+                # intermediates는 목적지 포함, 출발지 제외
+                complete_route.extend(intermediates)
+        return complete_route
+
+    def reconstruct_lines(
+        self, line_stations: Dict = None, station_order_map: Dict = None
+    ) -> List[str]:
+        """전체 노선 정보 재구성 -> route_sequence와 동이리 길이로 확장"""
+        if line_stations is None or station_order_map is None:
+            # 원래 동작 (하위 호환성을 위함)
+            lines = []
+            cur = self
+            while cur is not None:
+                lines.append(cur.current_line)
+                cur = cur.parent_label
+            return lines[::-1]
+
+        # 중간 역 포함하여 구축
+        labels_path = []
+        while cur is not None:
+            labels_path.append(cur)
+            cur = cur.parent_label
+        labels_path = labels_path[::-1]
+
+        complete_lines = []
+
+        for i, label in enumerate(labels_path):
+            if i == 0:
+                complete_lines.append(label.current_line)
+                continue
+
+            prev_label = labels_path[i - 1]
+            curr_label = label
+
+            is_transfer = prev_label.current_line != curr_label.current_line
+
+            if is_transfer:
+                if curr_label.current_station_cd != prev_label.current_station_cd:
+                    complete_lines.append(curr_label.current_line)
+            else:
+                # 같은 노선: 중간 역 개수 세기
+                intermediates = _get_intermediate_stations(
+                    prev_label.current_station_cd,
+                    curr_label.current_station_cd,
+                    curr_label.current_line,
+                    curr_label.current_direction,
+                    line_stations,
+                    station_order_map,
+                )
+                # 각 중간 역에 대해 노선 추가
+                complete_lines.extend([curr_label.current_line] * len(intermediates))
+
+        return complete_lines
 
     def reconstruct_transfer_info(self) -> List[Tuple[str, str, str]]:
         """환승 정보 재구성"""
@@ -229,3 +320,60 @@ class Label:
 
         distance = self.weighted_distance(other, anp_weights)
         return distance <= epsilon
+
+
+def _get_intermediate_stations(
+    from_station_cd: str,
+    to_station_cd: str,
+    line: str,
+    direction: str,
+    line_stations: Dict,
+    station_order_map: Dict,
+) -> List[str]:
+    """
+    두 역 사이의 모든 중간 역을 반환 (from 제외, to 포함)
+
+    Args:
+        from_station_cd: 출발역 코드
+        to_station_cd: 도착역 코드
+        line: 노선명
+        direction: 이동 방향 ("up", "down", "in", "out")
+        line_stations: {(station_cd, line): {"up": [...], "down": [...], ...}}
+        station_order_map: {(station_cd, line): order}
+
+    Returns:
+        [중간역_1, 중간역_2, ..., to_station_cd]
+    """
+    # 출발역과 도착역의 순서 가져오기
+    from_order = station_order_map.get((from_station_cd, line))
+    to_order = station_order_map.get((to_station_cd, line))
+
+    if from_order is None or to_order is None:
+        # 폴백: 목적지만 반환
+        return [to_station_cd]
+
+    # 해당 방향의 모든 역 가져오기
+    stations_map = line_stations.get((from_station_cd, line))
+    if not stations_map:
+        return [to_station_cd]
+
+    stations_in_direction = stations_map.get(direction, [])
+
+    if not stations_in_direction:
+        return [to_station_cd]
+
+    # from과 to 사이의 모든 역 찾기 (to 포함, from 제외)
+    result = []
+    found_destination = False
+
+    for station_cd in stations_in_direction:
+        result.append(station_cd)
+        if station_cd == to_station_cd:
+            found_destination = True
+            break
+
+    if not found_destination:
+        # 파레토 최적해이므로 발생하지 않을테지만, 방어적 프로그래밍
+        result.append(to_station_cd)
+
+    return result
