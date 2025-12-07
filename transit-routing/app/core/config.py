@@ -74,6 +74,26 @@ class Settings:
             "connect_timeout": 30,
         }
 
+    # Faster-Whisper 모델 설정
+    WHISPER_MODEL_SIZE: str = os.getenv(
+        "WHISPER_MODEL_SIZE", "medium"
+    )  # tiny, base, small, medium, large
+    WHISPER_MODEL_DIR: str = os.getenv("WHISPER_MODEL_DIR", "./models/whisper")
+    WHISPER_USE_GPU: bool = os.getenv("WHISPER_USE_GPU", "false").lower() == "true"
+    WHISPER_NUM_THREADS: int = int(os.getenv("WHISPER_NUM_THREADS", "4"))
+    WHISPER_MAX_WORKERS: int = int(os.getenv("WHISPER_MAX_WORKERS", "2"))
+
+    # STT 처리 제한
+    STT_TIMEOUT_SECONDS: int = int(os.getenv("STT_TIMEOUT_SECONDS", "30"))
+    STT_MAX_AUDIO_SIZE_MB: int = int(os.getenv("STT_MAX_AUDIO_SIZE_MB", "10"))
+
+    # 음성 입력 기본값
+    VOICE_AUDIO_FORMAT: str = os.getenv("VOICE_AUDIO_FORMAT", "webm")
+    VOICE_SAMPLE_RATE: int = int(os.getenv("VOICE_SAMPLE_RATE", "16000"))
+
+    # station name과 code
+    STATION_DATA_PATH: str = os.getenv("STATION_DATA_PATH", "app/data/stations.json")
+
 
 settings = Settings()  # 모듈화
 
