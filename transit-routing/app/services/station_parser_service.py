@@ -56,21 +56,35 @@ class StationParserService:
         JSON 리스트를 읽어서 Name->Code 맵으로 변환
         """
         path = Path(settings.STATION_DATA_PATH)
+        absolute_path = path.resolve()
         lookup_table = {}
+
+        # 진단 로그 1: 파일 경로 및 존재 여부
+        logger.info(f"[STATION_PARSER] Loading stations from: {absolute_path}")
+        logger.info(f"[STATION_PARSER] Current working directory: {Path.cwd()}")
+        logger.info(f"[STATION_PARSER] File exists: {path.exists()}")
 
         try:
             if not path.exists():
-                logger.warning(
-                    f"Station data file not found at: {path}. Using empty DB."
+                logger.error(
+                    f"[STATION_PARSER] File NOT FOUND at: {absolute_path}. Using empty DB."
                 )
                 return {}
 
             with open(path, "r", encoding="utf-8") as f:
                 raw_list = json.load(f)  # List[Dict] 형태 로드
 
+                # 진단 로그 2: 파일 로딩 결과
+                logger.info(f"[STATION_PARSER] Loaded data type: {type(raw_list)}")
+                logger.info(f"[STATION_PARSER] Total items in file: {len(raw_list) if isinstance(raw_list, list) else 'N/A'}")
+
                 if not isinstance(raw_list, list):
-                    logger.error("JSON data is not a list format.")
+                    logger.error(f"[STATION_PARSER] Invalid data format: expected list, got {type(raw_list)}")
                     return {}
+
+                # 진단 로그 3: 샘플 데이터 확인
+                if len(raw_list) > 0:
+                    logger.info(f"[STATION_PARSER] Sample item: {raw_list[0]}")
 
                 count = 0
                 for item in raw_list:
@@ -85,27 +99,45 @@ class StationParserService:
                         lookup_table[name] = code
                         count += 1
 
-                logger.info(f"Loaded {count} stations mapped from {path}")
+                # 진단 로그 4: 최종 결과
+                logger.info(f"[STATION_PARSER] Successfully loaded {count} stations")
+                if count > 0:
+                    sample_keys = list(lookup_table.keys())[:5]
+                    logger.info(f"[STATION_PARSER] Sample station names: {sample_keys}")
+                else:
+                    logger.error(f"[STATION_PARSER] WARNING: No stations loaded! lookup_table is empty")
+
                 return lookup_table
 
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON format in {path}: {e}")
+            logger.error(f"[STATION_PARSER] JSON decode error: {e}")
             return {}
         except Exception as e:
-            logger.error(f"Failed to load station data: {e}")
+            logger.error(f"[STATION_PARSER] Unexpected error: {e}")
             return {}
 
     def parse(self, text: str) -> StationParseResult:
+        # 진단 로그 5: 입력 텍스트 및 lookup_table 상태
+        logger.info(f"[STATION_PARSER] Parsing input: '{text}'")
+        logger.info(f"[STATION_PARSER] Lookup table size: {len(self.station_db)}")
+
         clean_text = text.strip()
 
         # 1. 정규식 패턴 매칭
         for pattern in self.PATTERNS:
             match = pattern.search(clean_text)
             if match:
-                origin_name, origin_cd = self._get_station_info(match.group("origin"))
-                dest_name, dest_cd = self._get_station_info(match.group("destination"))
+                origin_raw = match.group("origin")
+                dest_raw = match.group("destination")
+                logger.info(f"[STATION_PARSER] Regex matched - Origin: '{origin_raw}', Destination: '{dest_raw}'")
+
+                origin_name, origin_cd = self._get_station_info(origin_raw)
+                dest_name, dest_cd = self._get_station_info(dest_raw)
+
+                logger.info(f"[STATION_PARSER] Looked up - Origin: '{origin_name}' (code: {origin_cd}), Destination: '{dest_name}' (code: {dest_cd})")
 
                 if origin_cd and dest_cd:
+                    logger.info(f"[STATION_PARSER] Parsing SUCCESS via regex_pattern")
                     return StationParseResult(
                         origin=origin_name,
                         origin_cd=origin_cd,
@@ -118,11 +150,15 @@ class StationParserService:
 
         # 2. Fuzzy Split ("사당강남")
         no_space_text = clean_text.replace(" ", "")
+        logger.info(f"[STATION_PARSER] Attempting fuzzy split for: '{no_space_text}'")
         fuzzy_result = self._fuzzy_split_stations(no_space_text)
         if fuzzy_result.is_valid:
             fuzzy_result.raw_text = text
+            logger.info(f"[STATION_PARSER] Parsing SUCCESS via fuzzy_split")
             return fuzzy_result
 
+        # 파싱 실패
+        logger.error(f"[STATION_PARSER] Parsing FAILED for: '{text}'")
         return StationParseResult(raw_text=text, confidence=0.0)
 
     def _get_station_info(self, name: str) -> Tuple[Optional[str], Optional[str]]:
