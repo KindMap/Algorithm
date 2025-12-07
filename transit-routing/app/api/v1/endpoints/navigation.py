@@ -14,6 +14,7 @@ from app.models.domain import User
 from typing import Optional
 import uuid
 import time
+import asyncio
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -80,7 +81,10 @@ async def calculate_route(
 
         start_time = time.time()
 
-        result = service.calculate_route(
+        # Run CPU-intensive pathfinding in thread pool to avoid blocking event loop
+        # This allows FastAPI to handle other concurrent requests while pathfinding runs
+        result = await asyncio.to_thread(
+            service.calculate_route,
             origin_name=request.origin,
             destination_name=request.destination,
             disability_type=final_disability_type,
