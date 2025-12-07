@@ -21,6 +21,8 @@ from app.db.redis_client import init_redis
 from app.core.exceptions import KindMapException
 from app.tasks.tasks import save_location_history, save_navigation_event
 from app.auth.security import decode_token  # JWT 디코딩 함수 임포트
+from app.services.stt_service import get_stt_service, STTException
+from app.services.station_parser_service import get_station_parser_service
 
 # Redis Pub/Sub
 from app.services.redis_pubsub_manager import get_pubsub_manager
@@ -296,6 +298,15 @@ async def websocket_endpoint(
 
             elif message_type == "end_navigation":
                 await handle_end_navigation(user_id)
+
+            elif message_type == "voice_input":
+                await handle_voice_input(
+                    user_id,
+                    data,
+                    get_stt_service(),
+                    get_station_parser_service(),
+                    get_pathfinding_service(),
+                )
 
             elif message_type == "ping":
                 await manager.send_message(user_id, {"type": "pong"})
@@ -706,3 +717,151 @@ async def handle_end_navigation(user_id: str):
         logger.info(f"내비게이션 종료: user={user_id}, route_id={route_id_from_client}")
     else:
         await manager.send_error(user_id, "활성 세션이 없습니다", "NO_ACTIVE_SESSION")
+
+
+async def handle_voice_input(
+    user_id: str,
+    data: dict,
+    stt_service,
+    parser_service,
+    pathfinding_service: PathfindingService,
+):
+    """
+    음성 입력 처리 핸들러
+
+    플로우:
+    1. audio_data 검증
+    2. transcription_started 전송
+    3. STT 처리 (비동기)
+    4. transcription_complete 전송
+    5. 역 이름 파싱
+    6. stations_recognized 전송
+    7. 경로 계산 (disability_type=VIS)
+    8. route_calculated 전송
+    """
+
+    # 1. 검증
+    audio_data = data.get("audio_data")
+    if not audio_data:
+        await manager.send_error(
+            user_id, "음성 데이터가 필요합니다", "MISSING_AUDIO_DATA"
+        )
+        return
+
+    # 2. 인식 시작 알림
+    await manager.send_message(
+        user_id,
+        {
+            "type": "transcription_started",
+            "message": "음성 인식 중...",
+        },
+    )
+
+    # 3. STT 처리
+    try:
+        stt_result = await stt_service.process_audio(
+            audio_base64=audio_data,
+            audio_format=data.get("audio_format", "webm"),
+            sample_rate=data.get("sample_rate", 16000),
+        )
+
+        transcribed_text = stt_result.text.strip()
+
+        if not transcribed_text:
+            await manager.send_error(
+                user_id, "음성을 인식하지 못했습니다.", "STT_NO_RESULT"
+            )
+            return
+
+        # 4. 인식 완료 알림
+        await manager.send_message(
+            user_id,
+            {
+                "type": "transcription_complete",
+                "transcribed_text": transcribed_text,
+                "confidence": round(stt_result.confidence, 2),
+            },
+        )
+
+    except STTException as e:
+        await manager.send_error(user_id, str(e), "STT_FAILED")
+        return
+
+    # 5. 역 이름 파싱
+    try:
+        parse_result = parser_service.parse(transcribed_text)
+
+        if not parse_result.is_valid:
+            suggestions = parser_service.suggest_corrections(transcribed_text, limit=3)
+            suggestion_names = [s["name"] for s in suggestions]
+            await manager.send_error(
+                user_id,
+                f"역 이름을 찾을 수 없습니다.\n추천: {', '.join(suggestion_names)}",
+                "NO_STATIONS_FOUND",
+            )
+            return
+
+        # 6. 역 인식 알림
+        await manager.send_message(
+            user_id,
+            {
+                "type": "stations_recognized",
+                "origin": parse_result.origin,
+                "origin_cd": parse_result.origin_cd,
+                "destination": parse_result.destination,
+                "destination_cd": parse_result.destination_cd,
+                "message": f"출발: {parse_result.origin}, 도착: {parse_result.destination}",
+            },
+        )
+
+    except Exception as e:
+        await manager.send_error(user_id, "역 이름 인식 중 오류", "PARSING_ERROR")
+        return
+
+    # 7-8. 경로 계산 (VIS 고정)
+    try:
+        disability_type = "VIS"  # 시각장애인 고정
+
+        route_data = pathfinding_service.calculate_route(
+            origin_name=parse_result.origin,
+            destination_name=parse_result.destination,
+            disability_type=disability_type,
+        )
+
+        route_id = str(uuid.uuid4())
+        route_data["route_id"] = route_id
+
+        # Redis 세션 생성
+        get_redis_client().create_session(user_id, route_data)
+
+        # route_calculated 전송
+        await manager.send_message(
+            user_id,
+            {
+                "type": "route_calculated",
+                "route_id": route_id,
+                "origin": route_data["origin"],
+                "origin_cd": route_data["origin_cd"],
+                "destination": route_data["destination"],
+                "destination_cd": route_data["destination_cd"],
+                "routes": route_data["routes"],
+                "total_routes_found": route_data["total_routes_found"],
+                "routes_returned": route_data["routes_returned"],
+                "selected_route_rank": 1,
+                "disability_type": disability_type,
+                "input_method": "voice",
+            },
+        )
+
+        # 이벤트 저장 (게스트는 제외)
+        if not user_id.startswith("temp_"):
+            save_navigation_event.delay(
+                user_id, "voice_route_calculated", route_data, route_id
+            )
+
+    except KindMapException as e:
+        await manager.send_error(user_id, e.message, e.code)
+    except Exception as e:
+        await manager.send_error(
+            user_id, "경로 계산 중 오류", "ROUTE_CALCULATION_ERROR"
+        )

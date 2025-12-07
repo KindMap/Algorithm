@@ -184,3 +184,14 @@ class StationParserService:
             }
             for match in matches
         ]
+
+
+_station_parser_service: Optional[StationParserService] = None
+
+
+def get_station_parser_service() -> StationParserService:
+    """station parser 서비스 싱글톤 인스턴스 반환"""
+    global _station_parser_service
+    if _station_parser_service is None:
+        _station_parser_service = StationParserService()
+    return _station_parser_service

@@ -157,3 +157,15 @@ class STTService:
             )
         except Exception as e:
             raise STTException(f"Whisper 추론 실패: {e}")
+
+
+# 서비스 싱글톤
+_stt_service: Optional[STTService] = None
+
+
+def get_stt_service() -> STTService:
+    """STT 서비스 싱글톤 인스턴스 반환"""
+    global _stt_service
+    if _stt_service is None:
+        _stt_service = STTService()
+    return _stt_service
