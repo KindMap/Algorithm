@@ -35,9 +35,9 @@ class RedisPubSubManager:
         if not self.enabled:
             logger.info("Redis Pub/Sub 비활성화")
             return
-        
+
         max_retries = 5
-        retry_delay = 5 # second
+        base_delay = 2  # 초
 
         for attempt in range(1, max_retries + 1):
             try:
@@ -55,15 +55,51 @@ class RedisPubSubManager:
                 # subscribe channel
                 await self.pubsub.subscribe(self.channel)
                 logger.info(f"Redis Pub/Sub 초기화 완료: channel={self.channel}")
+                return  # 성공 시 즉시 반환
 
             except Exception as e:
-                logger.warning(f"Redis Pub/Sub 초기화 시도 {attempt}/{max_retries} 실패: {e}")
-                
+                logger.warning(
+                    f"Redis Pub/Sub 초기화 시도 {attempt}/{max_retries} 실패: {e}"
+                )
+
+                # 실패 시 부분적으로 생성된 리소스 정리
+                await self._cleanup_failed_resources()
+
                 if attempt < max_retries:
-                    await asyncio.sleep(retry_delay)
+                    # Exponential backoff + jitter
+                    delay = base_delay * (2 ** (attempt - 1))
+                    import random
+
+                    jitter = delay * random.uniform(0.8, 1.2)
+
+                    logger.info(f"{jitter:.1f}초 후 재시도...")
+                    await asyncio.sleep(jitter)
                 else:
                     logger.error("Redis Pub/Sub 초기화 최종 실패")
                     raise
+
+    async def _cleanup_failed_resources(self):
+        """실패한 연결 리소스 정리"""
+        if self.pubsub:
+            try:
+                await self.pubsub.close()
+            except:
+                pass
+            self.pubsub = None
+
+        if self.pubsub_client:
+            try:
+                await self.pubsub_client.close()
+            except:
+                pass
+            self.pubsub_client = None
+
+        if self.redis_pool:
+            try:
+                await self.redis_pool.disconnect()
+            except:
+                pass
+            self.redis_pool = None
 
     async def publish(self, user_id: str, message: dict):
         """(비동기)Redis 채널에 메시지 발행"""
