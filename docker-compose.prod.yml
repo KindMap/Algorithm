@@ -49,11 +49,11 @@ services:
     # --timeout 120: 무거운 작업(STT/경로탐색) 중 워커킬 방지 (502 해결)
     # workers 1: 컨테이너 당 1개의 워커만 띄우고, 컨테이너 개수(replicas)로 스케일링
     command: >
-      gunicorn app.main:app 
-      --workers 1 
-      --worker-class uvicorn.workers.UvicornWorker 
-      --bind 0.0.0.0:8001 
-      --timeout 120 
+      gunicorn app.main:app
+      --workers 1
+      --worker-class uvicorn.workers.UvicornWorker
+      --bind 0.0.0.0:8001
+      --timeout 300
       --keep-alive 120
       --worker-connections 1000
 

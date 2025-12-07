@@ -2,6 +2,7 @@
 FAST API Websocket endpoint
 """
 
+import asyncio
 import logging
 import uuid
 import time
@@ -368,10 +369,16 @@ async def handle_start_navigation(
         final_disability_type = "PHY"  # default -> PHY
 
     try:
-        route_data = pathfinding_service.calculate_route(
-            origin_name=request_model.origin,
-            destination_name=request_model.destination,
-            disability_type=final_disability_type,
+        # ThreadPoolExecutor에서 실행 (이벤트 루프 블로킹 방지)
+        # 타임아웃 60초 설정
+        route_data = await asyncio.wait_for(
+            run_in_threadpool(
+                pathfinding_service.calculate_route,
+                origin_name=request_model.origin,
+                destination_name=request_model.destination,
+                disability_type=final_disability_type,
+            ),
+            timeout=60.0,
         )
 
         route_id = str(uuid.uuid4())
@@ -407,6 +414,13 @@ async def handle_start_navigation(
             f"경로 계산 완료: route_id={route_id}, {route_data['routes_returned']}개 경로 반환"
         )
 
+    except asyncio.TimeoutError:
+        await manager.send_error(
+            user_id,
+            "경로 계산 시간이 초과되었습니다. 다시 시도해주세요.",
+            "CALCULATION_TIMEOUT",
+        )
+        logger.error(f"경로 계산 타임아웃 (user={user_id}): 60초 초과")
     except KindMapException as e:
         await manager.send_error(user_id, e.message, e.code)
         logger.error(f"경로 계산 실패 (user={user_id}): {e.message}")
@@ -822,10 +836,16 @@ async def handle_voice_input(
     try:
         disability_type = "VIS"  # 시각장애인 고정
 
-        route_data = pathfinding_service.calculate_route(
-            origin_name=parse_result.origin,
-            destination_name=parse_result.destination,
-            disability_type=disability_type,
+        # ThreadPoolExecutor에서 실행 (이벤트 루프 블로킹 방지)
+        # 타임아웃 60초 설정
+        route_data = await asyncio.wait_for(
+            run_in_threadpool(
+                pathfinding_service.calculate_route,
+                origin_name=parse_result.origin,
+                destination_name=parse_result.destination,
+                disability_type=disability_type,
+            ),
+            timeout=60.0,
         )
 
         route_id = str(uuid.uuid4())
@@ -859,6 +879,13 @@ async def handle_voice_input(
                 user_id, "voice_route_calculated", route_data, route_id
             )
 
+    except asyncio.TimeoutError:
+        await manager.send_error(
+            user_id,
+            "경로 계산 시간이 초과되었습니다. 다시 시도해주세요.",
+            "CALCULATION_TIMEOUT",
+        )
+        logger.error(f"음성 입력 경로 계산 타임아웃 (user={user_id}): 60초 초과")
     except KindMapException as e:
         await manager.send_error(user_id, e.message, e.code)
     except Exception as e:
