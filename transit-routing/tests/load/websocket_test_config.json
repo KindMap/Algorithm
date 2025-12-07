@@ -1,0 +1,241 @@
+{
+  "description": "WebSocket 부하 테스트 설정 파일",
+  "test_environment": "wss://kindmap-for-you.cloud",
+  "max_concurrent_users": 1000,
+  "test_duration_minutes": 25,
+  "stations": {
+    "강남": {
+      "lat": 37.4979,
+      "lon": 127.0276,
+      "line": "2호선, 신분당선",
+      "description": "서울 주요 비즈니스 지구"
+    },
+    "홍대입구": {
+      "lat": 37.5579,
+      "lon": 126.9227,
+      "line": "2호선, 경의중앙선, 공항철도",
+      "description": "문화/상업 중심지"
+    },
+    "잠실": {
+      "lat": 37.5133,
+      "lon": 127.1000,
+      "line": "2호선, 8호선",
+      "description": "대형 환승역"
+    },
+    "구로디지털단지": {
+      "lat": 37.4850,
+      "lon": 126.9010,
+      "line": "2호선",
+      "description": "IT 단지"
+    },
+    "서울": {
+      "lat": 37.5547,
+      "lon": 126.9707,
+      "line": "1호선, 4호선, 경의중앙선",
+      "description": "서울역 메인 허브"
+    },
+    "신림": {
+      "lat": 37.4843,
+      "lon": 126.9297,
+      "line": "2호선",
+      "description": "대학가"
+    },
+    "삼성": {
+      "lat": 37.5088,
+      "lon": 127.0633,
+      "line": "2호선",
+      "description": "비즈니스 지구"
+    },
+    "고속터미널": {
+      "lat": 37.5046,
+      "lon": 127.0047,
+      "line": "3호선, 7호선, 9호선",
+      "description": "주요 환승역"
+    },
+    "신도림": {
+      "lat": 37.5088,
+      "lon": 126.8913,
+      "line": "1호선, 2호선",
+      "description": "대형 환승역"
+    },
+    "선릉": {
+      "lat": 37.5045,
+      "lon": 127.0489,
+      "line": "2호선, 분당선",
+      "description": "비즈니스 지구"
+    },
+    "사당": {
+      "lat": 37.4765,
+      "lon": 126.9815,
+      "line": "2호선, 4호선",
+      "description": "주요 환승역"
+    },
+    "가산디지털단지": {
+      "lat": 37.4816,
+      "lon": 126.8826,
+      "line": "1호선, 7호선",
+      "description": "IT 단지"
+    }
+  },
+  "disability_types": {
+    "PHY": {
+      "name": "지체장애",
+      "description": "휠체어 사용자",
+      "weight": 40,
+      "walking_speed_ms": 0.79
+    },
+    "VIS": {
+      "name": "시각장애",
+      "description": "시각장애인",
+      "weight": 30,
+      "walking_speed_ms": 0.76
+    },
+    "ELD": {
+      "name": "고령자",
+      "description": "고령자",
+      "weight": 20,
+      "walking_speed_ms": 0.65
+    },
+    "AUD": {
+      "name": "청각장애",
+      "description": "청각장애인",
+      "weight": 10,
+      "walking_speed_ms": 0.98
+    }
+  },
+  "load_pattern": {
+    "stages": [
+      {
+        "name": "Warm-up",
+        "duration_seconds": 120,
+        "target_users": 100,
+        "spawn_rate": 1,
+        "description": "초기 연결 안정화"
+      },
+      {
+        "name": "Normal Load",
+        "duration_seconds": 300,
+        "target_users": 300,
+        "spawn_rate": 2,
+        "description": "일반적인 부하 수준"
+      },
+      {
+        "name": "Medium Load",
+        "duration_seconds": 480,
+        "target_users": 500,
+        "spawn_rate": 3,
+        "description": "중간 부하 수준 (백엔드당 ~167명)"
+      },
+      {
+        "name": "High Load",
+        "duration_seconds": 720,
+        "target_users": 750,
+        "spawn_rate": 5,
+        "description": "높은 부하 수준 (백엔드당 ~250명)"
+      },
+      {
+        "name": "Peak Load",
+        "duration_seconds": 900,
+        "target_users": 1000,
+        "spawn_rate": 5,
+        "description": "최대 부하 수준 (백엔드당 ~333명)"
+      },
+      {
+        "name": "Sustained Stress",
+        "duration_seconds": 1500,
+        "target_users": 1000,
+        "spawn_rate": 5,
+        "description": "지속적 스트레스 테스트 (10분 유지)"
+      }
+    ]
+  },
+  "message_types": {
+    "start_navigation": {
+      "description": "경로 계산 (ANP 알고리즘)",
+      "weight": 1,
+      "expected_response_time_ms": {
+        "p50": 800,
+        "p95": 2000,
+        "p99": 3000
+      },
+      "timeout_seconds": 10
+    },
+    "location_update": {
+      "description": "실시간 GPS 위치 업데이트",
+      "weight": 10,
+      "expected_response_time_ms": {
+        "p50": 100,
+        "p95": 300,
+        "p99": 500
+      },
+      "timeout_seconds": 3
+    }
+  },
+  "success_criteria": {
+    "websocket_connection_success_rate": 0.99,
+    "websocket_connection_time_p95_ms": 500,
+    "start_navigation_p95_ms": 2000,
+    "location_update_p95_ms": 300,
+    "error_rate_max": 0.01,
+    "redis_pubsub_delivery_failures": 0,
+    "backend_load_distribution_variance_max": 0.15
+  },
+  "infrastructure": {
+    "backend_replicas": 3,
+    "max_connections_per_backend": 1000,
+    "total_capacity": 3000,
+    "redis_max_connections_per_backend": 50,
+    "redis_pubsub_channel": "kindmap_events",
+    "nginx_load_balancing": "ip_hash",
+    "websocket_ping_interval_seconds": 20,
+    "websocket_timeout_seconds": 3600,
+    "jwt_token_expire_minutes": 30
+  },
+  "test_accounts": [
+    {
+      "email": "test123@test.com",
+      "password": "password",
+      "note": "테스트 계정 1"
+    },
+    {
+      "email": "test789@test.com",
+      "password": "password2",
+      "note": "테스트 계정 2"
+    },
+    {
+      "email": "test147@test.com",
+      "password": "password3",
+      "note": "테스트 계정 3"
+    },
+    {
+      "email": "test258@test.com",
+      "password": "password4",
+      "note": "테스트 계정 4"
+    },
+    {
+      "email": "test369@test.com",
+      "password": "password5",
+      "note": "테스트 계정 5"
+    }
+  ],
+  "monitoring": {
+    "cloudwatch_metrics": [
+      "CPUUtilization",
+      "MemoryUtilization",
+      "NetworkIn",
+      "NetworkOut"
+    ],
+    "redis_metrics": [
+      "connected_clients",
+      "used_memory",
+      "pubsub_channels",
+      "pubsub_patterns"
+    ],
+    "application_logs": [
+      "Redis Pub/Sub 메시지 발행",
+      "WebSocket 연결/해제",
+      "경로 계산 완료",
+      "위치 업데이트 처리"
+    ]
+  }
+}
