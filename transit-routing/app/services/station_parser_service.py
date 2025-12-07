@@ -168,8 +168,13 @@ class StationParserService:
         if not name:
             return None, None
 
-        # '역' 접미사 제거
-        clean_name = name[:-1] if name.endswith("역") else name
+        # 조사 및 접미사 제거
+        clean_name = name
+        suffixes = ["에서", "까지", "으로", "로", "역", "가자", "갈래", "갈게요"]
+        for suffix in suffixes:
+            if clean_name.endswith(suffix):
+                clean_name = clean_name[:-len(suffix)]
+                break  # 하나만 제거
 
         code = self.station_db.get(clean_name)
         if code:
