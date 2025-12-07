@@ -31,30 +31,39 @@ class RedisPubSubManager:
         self._is_listening = False
 
     async def initialize(self):
-        """(비동기)Redis 연결 풀 초기화"""
+        """(비동기)Redis 연결 풀 초기화 + retry logic 추가"""
         if not self.enabled:
             logger.info("Redis Pub/Sub 비활성화")
             return
+        
+        max_retries = 5
+        retry_delay = 5 # second
 
-        try:
-            # create connection pool
-            self.redis_pool = aioredis.ConnectionPool.from_url(
-                self.redis_url,
-                max_connections=settings.REDIS_MAX_CONNECTIONS,
-                decode_responses=True,  # 자동 UTF-8 decoding
-            )
+        for attempt in range(1, max_retries + 1):
+            try:
+                # create connection pool
+                self.redis_pool = aioredis.ConnectionPool.from_url(
+                    self.redis_url,
+                    max_connections=settings.REDIS_MAX_CONNECTIONS,
+                    decode_responses=True,  # 자동 UTF-8 decoding
+                )
 
-            # Pub/Sub client 생성
-            self.pubsub_client = aioredis.Redis(connection_pool=self.redis_pool)
-            self.pubsub = self.pubsub_client.pubsub()
+                # Pub/Sub client 생성
+                self.pubsub_client = aioredis.Redis(connection_pool=self.redis_pool)
+                self.pubsub = self.pubsub_client.pubsub()
 
-            # subscribe channel
-            await self.pubsub.subscribe(self.channel)
-            logger.info(f"Redis Pub/Sub 초기화 완료: channel={self.channel}")
+                # subscribe channel
+                await self.pubsub.subscribe(self.channel)
+                logger.info(f"Redis Pub/Sub 초기화 완료: channel={self.channel}")
 
-        except Exception as e:
-            logger.error(f"Redis Pub/Sub 초기화 실패: {e}")
-            raise
+            except Exception as e:
+                logger.warning(f"Redis Pub/Sub 초기화 시도 {attempt}/{max_retries} 실패: {e}")
+                
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error("Redis Pub/Sub 초기화 최종 실패")
+                    raise
 
     async def publish(self, user_id: str, message: dict):
         """(비동기)Redis 채널에 메시지 발행"""

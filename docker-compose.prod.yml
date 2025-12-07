@@ -24,7 +24,7 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
-      retries: 3
+      retries: 5 # retry 증가
       start_period: 5s
 
   # 백엔드 컨테이너 스케일링
@@ -76,7 +76,7 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
-      start_period: 40s
+      start_period: 60s # 초기화 시간 증대
 
   nginx:
     image: ${REPOSITORY_URI}:nginx-${IMAGE_TAG}
