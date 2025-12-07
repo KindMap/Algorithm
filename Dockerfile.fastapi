@@ -63,9 +63,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()" || exit 1
 
 # [핵심] Gunicorn 실행 (타임아웃 120초 적용)
-# workers=1: 컨테이너 복제(Replicas)로 스케일링하므로 컨테이너 당 1개면 충분
+# workers=2: 2 vCPU 환경에 최적화 (1 컨테이너 × 2 워커 = 2 프로세스)
 CMD ["gunicorn", "app.main:app", \
-     "--workers", "1", \
+     "--workers", "2", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--bind", "0.0.0.0:8001", \
      "--timeout", "120", \

@@ -48,11 +48,11 @@ services:
     # Dockerfile의 CMD와 동일하지만,
     # docker-compose에서 명시적으로 제어
     command: >
-      gunicorn app.main:app 
-      --workers 1 
-      --worker-class uvicorn.workers.UvicornWorker 
-      --bind 0.0.0.0:8001 
-      --timeout 120 
+      gunicorn app.main:app
+      --workers 2
+      --worker-class uvicorn.workers.UvicornWorker
+      --bind 0.0.0.0:8001
+      --timeout 120
       --keep-alive 120
       --worker-connections 1000
 
@@ -63,13 +63,13 @@ services:
     #   - /home/ec2-user/model_cache:/root/.cache/huggingface
 
     deploy:
-      replicas: 3
+      replicas: 1
       resources:
         limits:
-          cpus: "1.0"
+          cpus: "2.0"
           memory: 2G
         reservations:
-          cpus: "0.5"
+          cpus: "1.0"
           memory: 1G
 
     healthcheck:
