@@ -50,7 +50,7 @@ services:
     # workers 1: 컨테이너 당 1개의 워커만 띄우고, 컨테이너 개수(replicas)로 스케일링
     command: >
       gunicorn app.main:app
-      --workers 1
+      --workers 2
       --worker-class uvicorn.workers.UvicornWorker
       --bind 0.0.0.0:8001
       --timeout 300
@@ -63,14 +63,14 @@ services:
       - /home/ec2-user/model_cache:/root/.cache/huggingface
 
     deploy:
-      replicas: 3
+      replicas: 1
       resources:
         limits:
-          cpus: "1.0"
+          cpus: "2.0"
           # [상향 조정] Whisper + 경로탐색 그래프 로드 시 1GB는 부족할 수 있음
-          memory: 2G 
+          memory: 2G
         reservations:
-          cpus: "0.5"
+          cpus: "1.0"
           memory: 1G
     
     healthcheck:
