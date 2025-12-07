@@ -11,12 +11,19 @@ logger = logging.getLogger(__name__)
 
 class RedisSessionManager:
     def __init__(self):
-        self.redis_client = redis.Redis(
+        # Connection pooling for improved concurrency
+        # Max connections = REDIS_MAX_CONNECTIONS from settings (default: 50)
+        self.pool = redis.ConnectionPool(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             db=0,
+            max_connections=settings.REDIS_MAX_CONNECTIONS,
             decode_responses=True,
+            socket_keepalive=True,
+            socket_connect_timeout=5,
+            retry_on_timeout=True,
         )
+        self.redis_client = redis.Redis(connection_pool=self.pool)
 
     def create_session(self, user_id: str, route_data: dict) -> bool:
         """session 생성 <- 에러 처리 추가"""

@@ -129,8 +129,7 @@ class Scenario(HttpUser):
 
 class StepLoadShape(LoadTestShape):
     """
-    [완화된 버전] 300명까지 점진적 부하 증가
-    전략: 각 단계를 2분(120초)으로 늘리고, 진입 속도(spawn_rate)를 낮춤
+    300명은 하드웨어 차원에서 불가능 => 동시 접속자 수 150명을 목표로 진행
     """
 
     stages = [
@@ -141,17 +140,17 @@ class StepLoadShape(LoadTestShape):
         # 기존 부하가 안정화된 후 50명 추가
         {"duration": 240, "users": 100, "spawn_rate": 2},
         # 3단계: 150명 도달 (6분 시점까지)
-        {"duration": 360, "users": 150, "spawn_rate": 3},
+        {"duration": 360, "users": 110, "spawn_rate": 3},
         # 4단계: 200명 도달 (8분 시점까지)
-        {"duration": 480, "users": 200, "spawn_rate": 3},
+        {"duration": 480, "users": 120, "spawn_rate": 3},
         # 5단계: 250명 도달 (10분 시점까지)
         # spawn_rate를 4로 제한하여 급격한 연결 시도 방지
-        {"duration": 600, "users": 250, "spawn_rate": 4},
+        {"duration": 600, "users": 130, "spawn_rate": 4},
         # 6단계: 300명 도달 (12분 시점까지)
-        {"duration": 720, "users": 300, "spawn_rate": 4},
+        {"duration": 720, "users": 140, "spawn_rate": 4},
         # 7단계: [유지 구간] 300명 상태로 5분간 유지 (총 17분 테스트)
         # 충분한 시간을 두어 메모리 누수나 지연 누적을 확인
-        {"duration": 1020, "users": 300, "spawn_rate": 4},
+        {"duration": 1020, "users": 150, "spawn_rate": 4},
     ]
 
     def tick(self):
