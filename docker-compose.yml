@@ -1,4 +1,3 @@
-# docker-compose.yml => 이 파일을 읽어서 배포하도록 깃 액션 변경 필요
 version: "3.8"
 
 services:
@@ -8,42 +7,71 @@ services:
     restart: unless-stopped
     networks:
       - kindmap-network
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 512mb 
+      --maxmemory-policy allkeys-lru 
+      --notify-keyspace-events "" 
+      --client-output-buffer-limit pubsub 32mb 8mb 60
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
-      retries: 3
+      retries: 5
       start_period: 5s
 
   fastapi:
-    build:
-      context: .
-      dockerfile: Dockerfile.fastapi
-    container_name: kindmap-fastapi
+    image: ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}
+    # replicas 사용 시 container_name 제거 필수
     restart: unless-stopped
     env_file:
-      - .env
+      - /home/ec2-user/.env
     environment:
-      ALLOWED_ORIGINS: "..."
-      # Redis Pub/Sub 환경변수 추가
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://35.92.117.143,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com,https://kindmap-for-you.cloud"
       REDIS_PUBSUB_ENABLED: "true"
       REDIS_PUBSUB_CHANNEL: "kindmap_events"
-    ports:
-      - "8001:8001"
+      # Dockerfile에서 설정했지만 명시적으로 한번 더 선언
+      WHISPER_MODEL_DIR: "/root/.cache/huggingface"
+    expose:
+      - "8001"
     networks:
       - kindmap-network
     depends_on:
       redis:
         condition: service_healthy
-    volumes:
-      - ./transit-routing:/app
-    # [변경] workers=1로 설정
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 1 --ws-ping-interval 20 --ws-ping-timeout 20
+
+    # Dockerfile의 CMD와 동일하지만,
+    # docker-compose에서 명시적으로 제어
+    command: >
+      gunicorn app.main:app 
+      --workers 1 
+      --worker-class uvicorn.workers.UvicornWorker 
+      --bind 0.0.0.0:8001 
+      --timeout 120 
+      --keep-alive 120
+      --worker-connections 1000
+
+    # Dockerfile에서 이미지를 빌드할 때 모델을 내장(Pre-baking) 했으므로
+    # 볼륨을 마운트하면 내장된 모델이 가려져서 다시 다운로드를 시도
+    # => volumes 부분은 삭제
+    # volumes:
+    #   - /home/ec2-user/model_cache:/root/.cache/huggingface
+
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+
     healthcheck:
       test:
         [
@@ -53,23 +81,23 @@ services:
           "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()",
         ]
       interval: 30s
-      timeout: 3s
+      timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
   nginx:
-    build:
-      context: .
-      dockerfile: Dockerfile.nginx
+    image: ${REPOSITORY_URI}:nginx-${IMAGE_TAG}
     container_name: kindmap-nginx
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     depends_on:
-      fastapi:
-        condition: service_healthy
+      - fastapi
     networks:
       - kindmap-network
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
     healthcheck:
       test:
         [
