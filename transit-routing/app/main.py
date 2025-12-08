@@ -7,7 +7,7 @@ KindMap Backend - FastAPI Application
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -20,6 +20,16 @@ from app.api.v1.router import api_router
 # Redis Pub/Sub
 from app.services.redis_pubsub_manager import get_pubsub_manager
 from app.api.v1.endpoints.websocket import manager as websocket_manager
+
+# 성능 모니터링
+from app.middleware.performance_monitoring import (
+    PerformanceMonitoringMiddleware,
+    RequestLoggingMiddleware,
+    get_metrics_collector,
+)
+
+# 경로 탐색 서비스
+from app.services.pathfinding_factory import get_engine_info
 
 # 로깅 설정
 logging.basicConfig(
@@ -157,6 +167,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 성능 모니터링 미들웨어 추가
+if settings.ENABLE_PERFORMANCE_MONITORING:
+    app.add_middleware(PerformanceMonitoringMiddleware)
+    app.add_middleware(RequestLoggingMiddleware)
+    logger.info("✓ 성능 모니터링 미들웨어 활성화")
+
 # API 라우터 등록
 app.include_router(api_router, prefix="/v1")  # 중복 접두사 문제 발생 수정
 
@@ -194,7 +210,13 @@ async def health_check():
     헬스 체크 엔드포인트
 
     서버 상태 확인용 (로드 밸런서, 모니터링)
+    - 데이터베이스 연결 상태
+    - Redis 연결 상태
+    - C++ 엔진 사용 여부
+    - 성능 통계
     """
+    import time as time_module
+
     try:
         # Redis 연결 확인
         from app.db.redis_client import init_redis
@@ -219,23 +241,53 @@ async def health_check():
         logger.error(f"DB 헬스 체크 실패: {e}")
         db_status = "unhealthy"
 
+    # 경로 탐색 엔진 정보
+    try:
+        engine_info = get_engine_info()
+        engine_status = "healthy"
+    except Exception as e:
+        logger.error(f"엔진 헬스 체크 실패: {e}")
+        engine_info = {"error": str(e)}
+        engine_status = "unhealthy"
+
+    # 성능 통계 (선택사항)
+    performance_stats = None
+    if settings.ENABLE_PERFORMANCE_MONITORING:
+        try:
+            metrics = get_metrics_collector()
+            performance_stats = metrics.get_summary()
+        except Exception as e:
+            logger.error(f"성능 통계 조회 실패: {e}")
+
     overall_status = (
         "healthy"
-        if (redis_status == "healthy" and db_status == "healthy")
+        if (
+            redis_status == "healthy"
+            and db_status == "healthy"
+            and engine_status == "healthy"
+        )
         else "unhealthy"
     )
 
     status_code = 200 if overall_status == "healthy" else 503
 
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "status": overall_status,
-            "version": settings.VERSION,
-            "timestamp": str(logging.time.time()),
-            "components": {"database": db_status, "redis": redis_status},
+    response_content = {
+        "status": overall_status,
+        "version": settings.VERSION,
+        "timestamp": time_module.time(),
+        "components": {
+            "database": db_status,
+            "redis": redis_status,
+            "pathfinding_engine": engine_status,
         },
-    )
+        "engine": engine_info,
+    }
+
+    # 성능 통계 추가 (있으면)
+    if performance_stats:
+        response_content["performance"] = performance_stats
+
+    return JSONResponse(status_code=status_code, content=response_content)
 
 
 @app.get("/api/v1/info")
@@ -245,10 +297,14 @@ async def api_info():
 
     API 버전 및 사용 가능한 엔드포인트 정보
     """
+    # 엔진 정보 추가
+    engine = get_engine_info()
+
     return {
         "api_version": "v1",
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
+        "engine": engine,
         "endpoints": {
             "websocket": {
                 "url": f"ws://localhost:{settings.PORT}/api/v1/ws/{{user_id}}",
@@ -269,6 +325,33 @@ async def api_info():
             "ELD": "고령자",
         },
     }
+
+
+@app.get("/api/v1/metrics")
+async def get_metrics():
+    """
+    성능 메트릭 엔드포인트
+
+    애플리케이션 성능 통계 조회
+    """
+    if not settings.ENABLE_PERFORMANCE_MONITORING:
+        return {"message": "성능 모니터링이 비활성화되어 있습니다"}
+
+    try:
+        metrics = get_metrics_collector()
+
+        return {
+            "summary": metrics.get_summary(),
+            "top_paths": metrics.get_path_stats(top_n=10),
+            "configuration": {
+                "slow_request_threshold_ms": settings.SLOW_REQUEST_THRESHOLD_MS,
+                "monitoring_enabled": settings.ENABLE_PERFORMANCE_MONITORING,
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"메트릭 조회 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"메트릭 조회 실패: {str(e)}")
 
 
 # ========== Exception Handlers ==========

@@ -27,7 +27,7 @@ services:
 
   fastapi:
     image: ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}
-    # container_name 제거 (replicas 사용 시 필수)
+    # replicas 사용 시 container_name은 사용할 수 없습니다. (주석 유지)
     restart: unless-stopped
     env_file:
       - /home/ec2-user/.env
@@ -35,8 +35,9 @@ services:
       ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://35.92.117.143,http://inha-capstone-03-frontend.s3-website-us-west-2.amazonaws.com,https://kindmap-for-you.cloud"
       REDIS_PUBSUB_ENABLED: "true"
       REDIS_PUBSUB_CHANNEL: "kindmap_events"
-      # Whisper 모델 저장 경로를 내부 볼륨으로 지정
       WHISPER_MODEL_DIR: "/root/.cache/huggingface"
+      # [New] C++ 엔진 활성화
+      USE_CPP_ENGINE: "true"
     expose:
       - "8001"
     networks:
@@ -44,35 +45,36 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    
-    # Gunicorn 사용: 프로세스 관리 및 타임아웃 제어에 유리
-    # --timeout 120: 무거운 작업(STT/경로탐색) 중 워커킬 방지 (502 해결)
-    # workers 1: 컨테이너 당 1개의 워커만 띄우고, 컨테이너 개수(replicas)로 스케일링
+
+    # [Modified] 1 Container - 1 Worker 전략 적용
+    # C++ 엔진은 GIL을 우회하므로 컨테이너당 단일 워커로 충분하며,
+    # 3개의 레플리카를 통해 처리량을 3배로 늘립니다.
     command: >
       gunicorn app.main:app
-      --workers 2
+      --workers 1
       --worker-class uvicorn.workers.UvicornWorker
       --bind 0.0.0.0:8001
       --timeout 300
       --keep-alive 120
       --worker-connections 1000
 
-    # Whisper 모델 캐싱을 위한 볼륨 마운트 => 컨테이너 재시작할 때마다 모델을 다운로드하지 않도록 조정
-    # 컨테이너 재시작 시 모델 다운로드 시간 단축
     volumes:
       - /home/ec2-user/model_cache:/root/.cache/huggingface
 
     deploy:
-      replicas: 1
+      # [Modified] 레플리카 3개로 확장
+      replicas: 3
       resources:
         limits:
-          cpus: "2.0"
-          # [상향 조정] Whisper + 경로탐색 그래프 로드 시 1GB는 부족할 수 있음
-          memory: 2G
-        reservations:
-          cpus: "1.0"
+          # 3개의 컨테이너가 호스트 CPU를 효율적으로 나눠 쓰도록 제한 (1.0 ~ 1.5 권장)
+          cpus: "1.5"
+          # [Modified] C++ 최적화 반영: 메모리 사용량이 줄었으므로 1G로 하향 조정하여
+          # 3개 컨테이너(총 3GB)가 T3.medium 등에서 안전하게 실행되도록 함
           memory: 1G
-    
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+
     healthcheck:
       test:
         [
@@ -82,7 +84,7 @@ services:
           "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()",
         ]
       interval: 30s
-      timeout: 10s # 타임아웃을 조금 더 넉넉하게
+      timeout: 10s
       retries: 3
       start_period: 60s
 
@@ -100,7 +102,15 @@ services:
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
       interval: 30s
       timeout: 3s
       retries: 3

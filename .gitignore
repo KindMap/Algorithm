@@ -102,3 +102,46 @@ ssl/
 # AI agent
 .claude
 .serena
+
+# C++ Build Files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.pyd
+*.exe
+*.out
+*.app
+
+# C++ Compiler Output
+*.d
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+# Build directories
+build/
+Build/
+out/
+.build/
+
+# Python C++ Extension Build
+*.egg-info/
+dist/
+build/
+*.cp*.pyd
+*.cp*.so

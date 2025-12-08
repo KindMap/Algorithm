@@ -384,3 +384,38 @@ def search_stations_by_name(keyword: str, limit: int = 10) -> List[Dict]:
             },
         )
         return cursor.fetchall()
+
+
+def get_all_facility_data() -> List[Dict]:
+    """
+    전체 지하철역의 편의시설 정보 전체 조회 from subway_facility_total
+    """
+    query = """
+    SELECT *
+    FROM subway_facility_total
+    """
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(query)
+            return cursor.fetchall()
+    except Exception as e:
+        logger.error(f"편의시설 데이터 조회 실패: {e}")
+        return []
+
+
+def get_all_congestion_data() -> List[Dict]:
+    """
+    혼잡도 정보 전체 조회 (subway_congestion)
+    """
+    query = """
+    SELECT *
+    FROM subway_congestion
+    """
+
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(query)
+            return cursor.fetchall()
+    except Exception as e:
+        logger.error(f"혼잡도 데이터 조회 실패: {e}")
+        return []

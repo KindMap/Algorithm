@@ -70,3 +70,6 @@ redis[hiredis]>=5.0.0
 # stt 처리
 faster-whisper>=0.10.0
 pydub>=0.25.1
+
+# CPP migration
+pybind11
