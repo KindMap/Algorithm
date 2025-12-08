@@ -11,13 +11,15 @@ from app.db.cache import (
     get_stations_dict,
     get_station_cd_by_name,
     get_lines_dict,
-    get_all_sections,
-    get_all_transfer_station_conv_scores,
+    get_facility_info_by_name,
+    get_facility_info_by_cd,
+    get_congestion_data,
 )
 from app.db.database import (
     get_all_stations,
-    get_all_transfers_with_facility_scores,
+    get_all_facility_data,
     get_all_congestion_data,
+    get_all_sections,
 )
 from app.core.exceptions import RouteNotFoundException, StationNotFoundException
 from app.core.config import settings
@@ -116,7 +118,9 @@ class PathfindingServiceCPP:
                     "down": list(reversed(station_cds)),
                 }
 
-        logger.debug(f"노선 토폴로지 로드 완료: {len(line_stations_dict)}개 (역, 노선) 쌍")
+        logger.debug(
+            f"노선 토폴로지 로드 완료: {len(line_stations_dict)}개 (역, 노선) 쌍"
+        )
 
         # 3. 역 순서 맵 (station_order)
         station_order_dict = {}
@@ -130,7 +134,7 @@ class PathfindingServiceCPP:
 
         # 4. 환승 정보 (transfers)
         transfers_dict = {}
-        all_transfers = get_all_transfers_with_facility_scores()
+        all_transfers = get_all_facility_data()
 
         for transfer in all_transfers:
             key = (
