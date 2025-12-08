@@ -26,6 +26,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# 유효한 장애 유형 정의
+VALID_DISABILITY_TYPES = {"PHY", "VIS", "AUD", "ELD"}
+
 
 class PathfindingServiceCPP:
     """
@@ -93,8 +96,8 @@ class PathfindingServiceCPP:
             stations_dict[station_cd] = {
                 "name": station["name"],
                 "line": station["line"],
-                "lat": station["lat"],
-                "lng": station["lng"],
+                "latitude": station["lat"],  # C++ expects "latitude"
+                "longitude": station["lng"],  # C++ expects "longitude"
             }
 
         logger.debug(f"역 정보 로드 완료: {len(stations_dict)}개 역")
@@ -133,32 +136,18 @@ class PathfindingServiceCPP:
         logger.debug(f"역 순서 맵 로드 완료: {len(station_order_dict)}개 항목")
 
         # 4. 환승 정보 (transfers)
+        # 현재는 기본 환승 거리만 사용 (편의성 점수는 편의시설 데이터로 대체)
+        # 실제 노선별 환승 거리는 별도 테이블에서 조회 가능하나,
+        # 현재는 기본값 사용
         transfers_dict = {}
-        all_transfers = get_all_facility_data()
 
-        for transfer in all_transfers:
-            key = (
-                transfer["station_cd"],
-                transfer["line_num"],
-                transfer["transfer_line"],
-            )
-
-            transfers_dict[key] = {
-                "distance": transfer.get("distance", 133.09),  # 기본 환승 거리
-                "facility_scores": {
-                    "elevators": transfer.get("elevator", 0),
-                    "escalators": transfer.get("escalator", 0),
-                    "lifts": transfer.get("lift", 0),
-                    "movingWalks": transfer.get("moving_walk", 0),
-                    "toilets": transfer.get("toilet", 0),
-                    "chargers": transfer.get("charger", 0),
-                    "helpers": transfer.get("helper", 0),
-                    "safePlatforms": transfer.get("safe_platform", 0),
-                    "signPhones": transfer.get("sign_phone", 0),
-                },
+        # 모든 역을 기본 환승역으로 등록 (실제 환승 가능 여부는 노선 데이터로 판단)
+        for station_cd in stations_dict.keys():
+            transfers_dict[station_cd] = {
+                "distance": 133.09,  # 기본 환승 거리 (미터)
             }
 
-        logger.debug(f"환승 정보 로드 완료: {len(transfers_dict)}개 환승")
+        logger.debug(f"환승 정보 로드 완료: {len(transfers_dict)}개 역")
 
         # 5. 혼잡도 정보 (congestion)
         congestion_dict = {}
@@ -173,10 +162,13 @@ class PathfindingServiceCPP:
             )
 
             # 시간대별 혼잡도 (t_0, t_30, t_60, ... t_1410)
+            # DB 값은 0-100 퍼센트, C++ 엔진은 0.0-1.0 정규화 값 기대
             time_slots = {}
             for i in range(0, 1440, 30):  # 0분부터 1410분까지 30분 간격
                 slot_key = f"t_{i}"
-                time_slots[slot_key] = cong.get(slot_key, 0.57)  # 기본값 57%
+                raw_value = cong.get(slot_key, 57)  # 기본값 57%
+                # 정규화: 0-100 -> 0.0-1.0
+                time_slots[slot_key] = float(raw_value) / 100.0 if raw_value is not None else 0.57
 
             congestion_dict[key] = time_slots
 
@@ -191,6 +183,34 @@ class PathfindingServiceCPP:
             transfers=transfers_dict,
             congestion=congestion_dict,
         )
+
+        # 6. 편의시설 데이터 로드 및 편의성 점수 계산
+        logger.info("편의시설 데이터 로드 및 점수 계산 중...")
+        facility_data = get_all_facility_data()
+
+        # C++ 엔진이 기대하는 형식으로 변환
+        facility_rows = []
+        for facility in facility_data:
+            facility_row = {
+                "station_cd_list": facility.get("station_cd_list", []),
+                "charger_count": float(facility.get("charger_count", 0)),
+                "elevator_count": float(facility.get("elevator_count", 0)),
+                "escalator_count": float(facility.get("escalator_count", 0)),
+                "lift_count": float(facility.get("lift_count", 0)),
+                "movingwalk_count": float(facility.get("movingwalk_count", 0)),
+                "safe_platform_count": float(facility.get("safe_platform_count", 0)),
+                "sign_phone_count": float(facility.get("sign_phone_count", 0)),
+                "toilet_count": float(facility.get("toilet_count", 0)),
+                "helper_count": float(facility.get("helper_count", 0)),
+            }
+            facility_rows.append(facility_row)
+
+        logger.debug(f"편의시설 데이터 {len(facility_rows)}개 행 준비 완료")
+
+        # C++ DataContainer에 편의시설 점수 업데이트
+        # C++에서 장애 유형별 가중치를 적용하여 자동으로 점수 계산
+        data_container.update_facility_scores(facility_rows)
+        logger.info("편의시설 기반 편의성 점수 계산 완료")
 
         elapsed_time = time.time() - start_time
         logger.info(f"C++ 데이터 로드 완료: {elapsed_time:.2f}초")
@@ -212,12 +232,20 @@ class PathfindingServiceCPP:
             경로 데이터 딕셔너리 (상위 3개 경로 포함)
 
         Raises:
+            ValueError: 유효하지 않은 장애 유형
             StationNotFoundException: 역을 찾을 수 없을 때
             RouteNotFoundException: 경로를 찾을 수 없을 때
         """
         start_time = time.time()
 
         try:
+            # 장애 유형 유효성 검증
+            if disability_type not in VALID_DISABILITY_TYPES:
+                raise ValueError(
+                    f"유효하지 않은 장애 유형: {disability_type}. "
+                    f"유효한 값: {', '.join(VALID_DISABILITY_TYPES)}"
+                )
+
             # 역 코드 조회
             origin_cd = get_station_cd_by_name(origin_name)
             destination_cd = get_station_cd_by_name(destination_name)
@@ -389,17 +417,28 @@ class PathfindingServiceCPP:
             )
             route_lines = self.cpp_engine.reconstruct_lines(label)
 
+            # 길이 검증: route_sequence와 route_lines의 길이가 일치해야 함
+            if len(route_sequence) != len(route_lines):
+                logger.warning(
+                    f"경로 시퀀스({len(route_sequence)})와 노선({len(route_lines)}) 길이 불일치"
+                )
+                return []
+
             # 환승 지점 찾기 (노선이 변경되는 지점)
             transfer_info = []
 
             for i in range(len(route_lines) - 1):
                 if route_lines[i] != route_lines[i + 1]:
                     # 환승 발생
-                    transfer_station = route_sequence[i + 1]  # 환승역
-                    from_line = route_lines[i]
-                    to_line = route_lines[i + 1]
+                    # 인덱스 범위 검증
+                    if i + 1 < len(route_sequence):
+                        transfer_station = route_sequence[i + 1]  # 환승역
+                        from_line = route_lines[i]
+                        to_line = route_lines[i + 1]
 
-                    transfer_info.append((transfer_station, from_line, to_line))
+                        transfer_info.append((transfer_station, from_line, to_line))
+                    else:
+                        logger.warning(f"환승역 인덱스 {i + 1}이 범위를 벗어남")
 
             return transfer_info
 

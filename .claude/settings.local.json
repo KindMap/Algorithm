@@ -20,7 +20,8 @@
       "Bash(dir:*)",
       "Bash(find:*)",
       "mcp__serena__find_file",
-      "mcp__serena__think_about_collected_information"
+      "mcp__serena__think_about_collected_information",
+      "mcp__serena__initial_instructions"
     ],
     "deny": [],
     "ask": []

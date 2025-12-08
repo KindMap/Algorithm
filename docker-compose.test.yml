@@ -1,0 +1,64 @@
+version: "3.8"
+
+services:
+  # Redis만 실행 (최소 의존성)
+  redis:
+    image: redis:7-alpine
+    container_name: kindmap-redis-test
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # FastAPI 컨테이너
+  fastapi:
+    image: kindmap-fastapi:latest
+    container_name: kindmap-fastapi-test
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # C++ 엔진 활성화
+      USE_CPP_ENGINE: "true"
+      
+      # Redis 설정
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      
+      # DB 설정 (테스트용 - 실제 연결 안 함)
+      DB_HOST: "localhost"
+      DB_PORT: "5432"
+      DB_NAME: "test_db"
+      DB_USER: "test_user"
+      DB_PASSWORD: "test_password"
+      
+      # 성능 모니터링
+      ENABLE_PERFORMANCE_MONITORING: "true"
+      SLOW_REQUEST_THRESHOLD_MS: "500"
+      
+      # 디버그
+      DEBUG: "true"
+      
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8001
+      --workers 1
+      --log-level info
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  default:
+    name: kindmap-test-network

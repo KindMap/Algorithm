@@ -1,0 +1,64 @@
+version: "3.8"
+
+# C++ 엔진 성능 테스트용 최소 구성
+# FastAPI + Redis (외부 PostgreSQL 사용)
+
+services:
+  # Redis (세션 관리 및 캐싱용)
+  redis:
+    image: redis:7-alpine
+    container_name: kindmap-redis-test
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # FastAPI (C++ 엔진)
+  fastapi:
+    image: kindmap-fastapi:latest
+    container_name: kindmap-fastapi-test
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.test  # 외부 DB 정보가 포함된 환경 변수 파일
+    environment:
+      # C++ 엔진 활성화 ⭐
+      USE_CPP_ENGINE: "true"
+      
+      # Redis 설정 (로컬 컨테이너)
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_PUBSUB_ENABLED: "false"  # WebSocket 비활성화 (테스트 불필요)
+      
+      # 성능 모니터링
+      ENABLE_PERFORMANCE_MONITORING: "true"
+      SLOW_REQUEST_THRESHOLD_MS: "500"
+      
+      # 기타 설정
+      DEBUG: "false"
+      ALLOWED_ORIGINS: "http://localhost:8089,http://127.0.0.1:8089,http://localhost:3000"
+      
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8001
+      --workers 1
+      --log-level info
+    
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+networks:
+  default:
+    name: kindmap-test-network
