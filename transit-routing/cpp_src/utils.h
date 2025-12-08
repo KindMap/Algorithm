@@ -66,5 +66,36 @@ namespace pathfinding
         // congestion 조회 시 사용되는 시간
         static std::string get_day_type(double timestamp);
         static std::string get_time_column(double timestamp);
+
+        // 방향 변환 유틸리티 inline
+        static inline Direction str_to_direction(const std::string &dir)
+        {
+            if (dir == "up")
+                return Direction::UP;
+            if (dir == "down")
+                return Direction::DOWN;
+            if (dir == "in")
+                return Direction::IN;
+            if (dir == "out")
+                return Direction::OUT;
+            return Direction::UNKNOWN;
+        }
+
+        static inline std::string direction_to_str(Direction dir)
+        {
+            switch (dir)
+            {
+            case Direction::UP:
+                return "up";
+            case Direction::DOWN:
+                return "down";
+            case Direction::IN:
+                return "in";
+            case Direction::OUT:
+                return "out";
+            default:
+                return "";
+            }
+        }
     };
 } // namespace pathfinding

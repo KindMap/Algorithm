@@ -1,0 +1,94 @@
+#pragma once
+#include <vector>
+#include <string>
+#include <unordered_map>
+#include <shared_mutex> // 동시성 제어
+#include <pybind11/pybind11.h>
+
+namespace py = pybind11;
+
+namespace pathfinding
+{
+
+    class DataContainer
+    {
+    public:
+        void load_from_python(
+            const py::dict &stations,
+            const py::dict &line_stations,
+            const py::dict &station_order,
+            const py::dict &transfers,
+            const py::dict &congestion,
+            const py::dict &facility_prefs);
+
+        // 실시간(매 시간) 편의시설 정보 업데이트 Thread-safe
+        void update_facility_scores(const py::dict &scores);
+
+        // ID mapping
+        StationID get_id(const std::string &cd) const;
+        std::string get_code(StationID id) const;
+
+        // data read => Lock-free Read
+        const StationInfo &get_station(StationID id) const;
+        const std::vector get_code<std::string> &get_lines(StationID id) const;
+
+        struct DirectionLines
+        {                                // 해당 방향으로 이동했을 때, 도달 가능한 역들을 미리 저장해둠
+            std::vector<StationID> up;   // 상행으로 이동 시 도달 가능한 역들의 리스트
+            std::vector<StationID> down; // 하행으로 이동 시 도달 가능한 역들의 리스트
+        };
+        const DirectionLine &get_next_stations(StationID id, const std::string &line) const;
+
+        // Transfer 조회
+        const TransferData *get_transfer(StationID from, const std::string &from_line, const std::string &to_line) const;
+
+        // Congestion 조회
+        double get_congestion(StationID id, const std::string &line, const std::string &dir,
+                              const std::string &day, const std::string &time_col) const;
+
+        const std::unordered_map<std::string, double> &get_facility_prefs(const std::string &type) const;
+
+        // Read-Write Lock
+        mutable std::shared_mutex update_mutex;
+
+    private:
+        std::unordered_map<std::string, StationID> code_to_id;
+        std::vector<std::string> id_to_code;
+
+        std::vector<StationInfo> stations_;
+        std::vector<std::vector<std::string>> station_lines_; // 해당 역에서 갈 수 있는 모든 노선
+
+        struct LineStationKey
+        {
+            StationID sid;
+            std::string line;
+            bool operator==(const LineStationKey &o) const { return sid == o.sid && line == o.line; }
+        };
+        struct LineStationHash
+        {
+            size_t operator()(const LineStationKey &k) const { return std::hash<StationID>{}(k.sid) ^ std::hash<std::string>{}(k.line); }
+        };
+        std::unordered_map<LineStationKey, DirectionLines, LineStationHash> line_topology_; // 사전 계산된 그래프
+        struct CongestionKey
+        {
+            StationID sid;
+            std::string line;
+            Direction dir;
+            std::string day;
+            bool operator==(const CongestionKey &o) const
+            {
+                return sid == o.sid && line == o.line && dir == o.dir && day == o.day;
+            }
+        } struct CongestionHash
+        {
+            size_t operator()(const CongestionKey &k) const
+            {
+                // StationID와 Direction을 비트 연산으로 합쳐서 고유 해시 생성 가능
+                // 예: (sid << 8) | (uint8_t)dir
+                return std::hash<StationID>{}(k.sid) ^ (std::hash<uint8_t>{}(static_cast<uint8_t>(k.dir)) << 1);
+            }
+        };
+        std::unordered_map<CongestionKey, std::unordered_map<std::string, double>, CongestionHash> congestion_;
+        std::unordered_map<std::string, std::unordered_map<std::string, double>> facility_prefs_;
+    };
+} // namespace pathfinding
