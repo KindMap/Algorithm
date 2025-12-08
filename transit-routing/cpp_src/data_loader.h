@@ -57,8 +57,8 @@ namespace pathfinding
         mutable std::shared_mutex update_mutex;
 
     private:
-        std::unordered_map<std::string, StationID> code_to_id;
-        std::vector<std::string> id_to_code;
+        std::unordered_map<std::string, StationID> code_to_id_;
+        std::vector<std::string> id_to_code_;
 
         std::vector<StationInfo> stations_;
         std::vector<std::vector<std::string>> station_lines_; // 해당 역에서 갈 수 있는 모든 노선
@@ -94,6 +94,7 @@ namespace pathfinding
                 return std::hash<StationID>{}(k.sid);
             }
         };
+        std::unordered_map<TransferKey, TransferData, TransferHash> transfers_;
 
         struct CongestionKey
         {
