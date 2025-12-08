@@ -2,18 +2,15 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <memory>
-#include <optional>
-#include <tuple>
 #include <cstdint>
+#include <tuple>
+#include <array>
 
 namespace pathfinding
 {
     // type alias 정의
     // => uint16_t : stationID 매핑!!!
-    // => Label을 미리 할당해 두고 인덱스로 관리
     using StationID = uint16_t;
-    using LineID = uint8_t; // |line| < 255
     using LabelIndex = int32_t;
 
     // 방향을 위한 Enum
@@ -24,6 +21,15 @@ namespace pathfinding
         IN = 2,   // 내선 순환
         OUT = 3,  // 외선 순환
         UNKNOWN = 255
+    };
+
+    enum class DisabilityType : uint8_t
+    {
+        PHY = 0,
+        VIS = 1,
+        AUD = 2,
+        ELD = 3,
+        COUNT = 4
     };
 
     // ANP weights
@@ -62,11 +68,12 @@ namespace pathfinding
         double helpers = 0.0;       // 교통약자 도우미
     };
 
-    struct TransferData
+    struct TransferData // 거리 정보만 유지
     {
         double distance;
         // Key: disability_type
-        std::unordered_map<std::string, FacilityScores> facility_scores;
+        // std::unordered_map<std::string, FacilityScores> facility_scores;
+        // => convenienceScore는 이제 역 단위로 통합 관리됨
     };
 
     // Label class(Memory pool용, 48~64 bytes packed)
@@ -74,7 +81,7 @@ namespace pathfinding
     {
         double arrival_time;
         int transfers;
-        double convenience_sum;
+        double convenience_sum; // 경로 상 환승역들의 점수 합
         double congestion_sum;
         double max_transfer_difficulty;
 
@@ -92,7 +99,7 @@ namespace pathfinding
         bool is_first_move;
         int created_round;
 
-        double score_cache = -1.0;
+        double score_cache = -1.0; // 정렬용 점수 캐시
 
         double avg_convenience() const { return depth > 0 ? convenience_sum / depth : 0.0; }
         double avg_congestion() const
