@@ -1,8 +1,15 @@
 #pragma once
+
+#define _USE_MATH_DEFINES
 #include <cmath>
+#include <ctime>
 #include <string>
 #include <unordered_map>
 #include "types.h"
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 namespace pathfinding
 {
@@ -118,8 +125,30 @@ namespace pathfinding
             const std::unordered_map<std::string, double> &prefs);
 
         // congestion 조회 시 사용되는 시간
-        static std::string get_day_type(double timestamp);
-        static std::string get_time_column(double timestamp);
+        static inline std::string get_day_type(double timestamp)
+        {
+            std::time_t t = static_cast<std::time_t>(timestamp);
+            std::tm *tm = std::localtime(&t);
+            int weekday = tm->tm_wday; // 0=일요일, 1=월요일, ..., 6=토요일
+
+            if (weekday >= 1 && weekday <= 5)
+                return "weekday";
+            else if (weekday == 6)
+                return "sat";
+            else
+                return "sun";
+        }
+
+        static inline std::string get_time_column(double timestamp)
+        {
+            std::time_t t = static_cast<std::time_t>(timestamp);
+            std::tm *tm = std::localtime(&t);
+
+            int minutes_from_midnight = tm->tm_hour * 60 + tm->tm_min;
+            int slot_minutes = (minutes_from_midnight / 30) * 30; // 30분 단위 내림
+
+            return "t_" + std::to_string(slot_minutes);
+        }
 
         // 방향 변환 유틸리티 inline
         static inline Direction str_to_direction(const std::string &dir)

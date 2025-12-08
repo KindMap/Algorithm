@@ -20,6 +20,13 @@ namespace pathfinding
             const std::string &disability_type,
             int max_rounds);
 
+        // 경로 정렬 및 재구성
+        std::vector<Label> rank_routes(
+            const std::vector<Label> &routes,
+            const std::string &disability_type);
+
+        std::vector<Label> reconstruct_path(const Label &leaf_label);
+
     private:
         const DataContainer &data_;
 

@@ -1,5 +1,6 @@
 #include "data_loader.h"
 #include "utils.h"
+#include <algorithm>
 #include <mutex>
 #include <iostream>
 
@@ -40,6 +41,29 @@ namespace pathfinding
             }
         }
 
+        for (auto item : station_order_dict)
+        {
+            py::tuple key = item.first.cast<py::tuple>();
+            std::string cd = py::str(key[0]);
+            std::string line = py::str(key[1]);
+            int order = item.second.cast<int>();
+
+            if (code_to_id_.find(cd) != code_to_id_.end())
+            {
+                StationID sid = code_to_id_[cd];
+                // (StationID, Line) -> Order 저장
+                station_orders_[{sid, line}] = order;
+                // Line -> List[(Order, StationID)] 저장
+                line_ordered_stations_[line].push_back({order, sid});
+            }
+        }
+
+        // 라인별 역 리스트 정렬 (순서 기반 검색을 위해)
+        for (auto &kv : line_ordered_stations_)
+        {
+            std::sort(kv.second.begin(), kv.second.end());
+        }
+
         // Line Topology
         for (auto item : line_stations_dict)
         {
@@ -74,6 +98,21 @@ namespace pathfinding
             line_topology_[{sid, line}] = dl;
         }
 
+        // station_lines_ 채우기: 각 역에서 이용 가능한 노선 목록 구축
+        for (const auto &pair : line_topology_)
+        {
+            const LineStationKey &key = pair.first;
+            StationID sid = key.sid;
+            const std::string &line = key.line;
+
+            // 해당 역의 노선 목록에 추가 (중복 방지)
+            auto &lines = station_lines_[sid];
+            if (std::find(lines.begin(), lines.end(), line) == lines.end())
+            {
+                lines.push_back(line);
+            }
+        }
+
         // Transfers
         for (auto item : transfers_dict)
         {
@@ -89,6 +128,21 @@ namespace pathfinding
             py::dict val = item.second.cast<py::dict>();
             TransferData td;
             td.distance = val["transfer_distance"].cast<double>();
+
+            // facility_scores 파싱 (optional)
+            if (val.contains("facility_scores"))
+            {
+                py::dict fac = val["facility_scores"].cast<py::dict>();
+                td.facility_scores.elevators = fac.contains("elevators") ? fac["elevators"].cast<double>() : 0.0;
+                td.facility_scores.escalators = fac.contains("escalators") ? fac["escalators"].cast<double>() : 0.0;
+                td.facility_scores.toilets = fac.contains("toilets") ? fac["toilets"].cast<double>() : 0.0;
+                td.facility_scores.lifts = fac.contains("lifts") ? fac["lifts"].cast<double>() : 0.0;
+                td.facility_scores.movingWalks = fac.contains("movingWalks") ? fac["movingWalks"].cast<double>() : 0.0;
+                td.facility_scores.chargers = fac.contains("chargers") ? fac["chargers"].cast<double>() : 0.0;
+                td.facility_scores.signPhones = fac.contains("signPhones") ? fac["signPhones"].cast<double>() : 0.0;
+                td.facility_scores.safePlatforms = fac.contains("safePlatforms") ? fac["safePlatforms"].cast<double>() : 0.0;
+                td.facility_scores.helpers = fac.contains("helpers") ? fac["helpers"].cast<double>() : 0.0;
+            }
 
             transfers_[{sid, f_line, t_line}] = td;
         }
@@ -116,6 +170,67 @@ namespace pathfinding
             }
             congestion_[{sid, line, dir, day}] = slot_map;
         }
+    }
+    std::vector<StationID> DataContainer::get_intermediate_stations(
+        StationID from_id, StationID to_id, const std::string &line) const
+    {
+        std::vector<StationID> result;
+
+        // 1. 두 역의 순서(Order) 조회
+        auto it_from = station_orders_.find({from_id, line});
+        auto it_to = station_orders_.find({to_id, line});
+
+        if (it_from == station_orders_.end() || it_to == station_orders_.end())
+        {
+            // 정보가 없으면 도착지만 반환
+            result.push_back(to_id);
+            return result;
+        }
+
+        int from_order = it_from->second;
+        int to_order = it_to->second;
+        bool ascending = from_order < to_order;
+
+        // 2. 해당 노선의 전체 역 리스트 가져오기
+        auto it_list = line_ordered_stations_.find(line);
+        if (it_list == line_ordered_stations_.end())
+        {
+            result.push_back(to_id);
+            return result;
+        }
+        const auto &list = it_list->second;
+
+        // 3. 범위 내 역 추출
+        if (ascending)
+        {
+            // 정방향: from < station <= to
+            for (const auto &p : list)
+            {
+                if (p.first > from_order && p.first <= to_order)
+                {
+                    result.push_back(p.second);
+                }
+            }
+        }
+        else
+        {
+            // 역방향: to <= station < from (방문 순서는 Order 역순)
+            // 리스트 뒤에서부터 탐색하여 순서대로 담음
+            for (auto it = list.rbegin(); it != list.rend(); ++it)
+            {
+                if (it->first < from_order && it->first >= to_order)
+                {
+                    result.push_back(it->second);
+                }
+            }
+        }
+
+        if (result.empty())
+        {
+            result.push_back(to_id);
+        }
+
+        return result;
     }
 
     void DataContainer::update_facility_scores(const py::list &facility_rows)

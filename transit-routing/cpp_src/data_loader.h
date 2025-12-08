@@ -22,6 +22,9 @@ namespace pathfinding
             const py::dict &transfers,
             const py::dict &congestion);
 
+        std::vector<StationID> get_intermediate_stations(
+            StationID from_id, StationID to_id, const std::string &line) const;
+
         // 실시간 업데이트 (List of dicts)
         void update_facility_scores(const py::list &facility_rows);
 
@@ -122,5 +125,8 @@ namespace pathfinding
 
         // 역 별 편의시설 점수
         std::vector<std::array<double, 4>> station_scores_;
+
+        std::unordered_map<LineStationKey, int, LineStationHash> station_orders_;
+        std::unordered_map<std::string, std::vector<std::pair<int, StationID>>> line_ordered_stations_;
     };
 } // namespace pathfinding

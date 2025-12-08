@@ -68,12 +68,10 @@ namespace pathfinding
         double helpers = 0.0;       // 교통약자 도우미
     };
 
-    struct TransferData // 거리 정보만 유지
+    struct TransferData
     {
         double distance;
-        // Key: disability_type
-        // std::unordered_map<std::string, FacilityScores> facility_scores;
-        // => convenienceScore는 이제 역 단위로 통합 관리됨
+        FacilityScores facility_scores; // 환승역의 편의시설 점수 (환승 난이도 계산에 사용)
     };
 
     // Label class(Memory pool용, 48~64 bytes packed)

@@ -1,127 +1,126 @@
-# CPP migration 동안 workflow 생략
-# name: Build and Deploy to EC2
+name: Build and Deploy to EC2
 
-# on:
-#   push:
-#     branches:
-#       - main
+on:
+  push:
+    branches:
+      - main
 
-# permissions:
-#   id-token: write
-#   contents: read
+permissions:
+  id-token: write
+  contents: read
 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-#       - name: Configure AWS credentials
-#         uses: aws-actions/configure-aws-credentials@v4
-#         with:
-#           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-#           aws-region: us-west-2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-west-2
 
-#       - name: Extract ECR details from ARN
-#         id: ecr-details
-#         run: |
-#           ARN="${{ secrets.ECR_REPOSITORY_ARN }}"
-#           REGION=$(echo $ARN | cut -d':' -f4)
-#           ACCOUNT_ID=$(echo $ARN | cut -d':' -f5)
-#           REPO_NAME=$(echo $ARN | cut -d'/' -f2)
-#           REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+      - name: Extract ECR details from ARN
+        id: ecr-details
+        run: |
+          ARN="${{ secrets.ECR_REPOSITORY_ARN }}"
+          REGION=$(echo $ARN | cut -d':' -f4)
+          ACCOUNT_ID=$(echo $ARN | cut -d':' -f5)
+          REPO_NAME=$(echo $ARN | cut -d'/' -f2)
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
-#           echo "region=${REGION}" >> $GITHUB_OUTPUT
-#           echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
-#           echo "repository-uri=${REGISTRY}/${REPO_NAME}" >> $GITHUB_OUTPUT
+          echo "region=${REGION}" >> $GITHUB_OUTPUT
+          echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
+          echo "repository-uri=${REGISTRY}/${REPO_NAME}" >> $GITHUB_OUTPUT
 
-#       - name: Extract EC2 details from ARN
-#         id: ec2-details
-#         run: |
-#           ARN="${{ secrets.EC2_INSTANCE_ARN }}"
-#           INSTANCE_ID=$(echo $ARN | cut -d'/' -f2)
-#           echo "instance-id=${INSTANCE_ID}" >> $GITHUB_OUTPUT
+      - name: Extract EC2 details from ARN
+        id: ec2-details
+        run: |
+          ARN="${{ secrets.EC2_INSTANCE_ARN }}"
+          INSTANCE_ID=$(echo $ARN | cut -d'/' -f2)
+          echo "instance-id=${INSTANCE_ID}" >> $GITHUB_OUTPUT
 
-#       - name: Set up Docker Buildx
-#         uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-#       - name: Login to Amazon ECR
-#         run: |
-#           aws ecr get-login-password --region ${{ steps.ecr-details.outputs.region }} | \
-#             docker login --username AWS --password-stdin ${{ steps.ecr-details.outputs.registry }}
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ steps.ecr-details.outputs.region }} | \
+            docker login --username AWS --password-stdin ${{ steps.ecr-details.outputs.registry }}
 
-#       - name: Build and push Docker images
-#         env:
-#           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
-#           IMAGE_TAG: ${{ github.sha }}
-#         run: |
-#           echo "Build and Push FastAPI Image"
-#           docker buildx build \
-#             --platform linux/amd64 \
-#             --file Dockerfile.fastapi \
-#             --cache-from type=registry,ref=$REPOSITORY_URI:fastapi-latest \
-#             --cache-to type=inline \
-#             --tag $REPOSITORY_URI:fastapi-$IMAGE_TAG \
-#             --tag $REPOSITORY_URI:fastapi-latest \
-#             --push .
+      - name: Build and push Docker images
+        env:
+          REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Build and Push FastAPI Image"
+          docker buildx build \
+            --platform linux/amd64 \
+            --file Dockerfile.fastapi \
+            --cache-from type=registry,ref=$REPOSITORY_URI:fastapi-latest \
+            --cache-to type=inline \
+            --tag $REPOSITORY_URI:fastapi-$IMAGE_TAG \
+            --tag $REPOSITORY_URI:fastapi-latest \
+            --push .
 
-#           echo "Build and Push Nginx Image"
-#           docker buildx build \
-#             --platform linux/amd64 \
-#             --file Dockerfile.nginx \
-#             --cache-from type=registry,ref=$REPOSITORY_URI:nginx-latest \
-#             --cache-to type=inline \
-#             --tag $REPOSITORY_URI:nginx-$IMAGE_TAG \
-#             --tag $REPOSITORY_URI:nginx-latest \
-#             --push .
+          echo "Build and Push Nginx Image"
+          docker buildx build \
+            --platform linux/amd64 \
+            --file Dockerfile.nginx \
+            --cache-from type=registry,ref=$REPOSITORY_URI:nginx-latest \
+            --cache-to type=inline \
+            --tag $REPOSITORY_URI:nginx-$IMAGE_TAG \
+            --tag $REPOSITORY_URI:nginx-latest \
+            --push .
 
-#       - name: Prepare deployment files
-#         env:
-#           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
-#           IMAGE_TAG: ${{ github.sha }}
-#         run: |
-#           echo "Using docker-compose.prod.yml from repository..."
-#           # 로컬에 있는 prod 파일을 읽어서 환경변수(${...})를 실제 값으로 치환
-#           envsubst < docker-compose.prod.yml > deploy_compose.yml
+      - name: Prepare deployment files
+        env:
+          REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Using docker-compose.prod.yml from repository..."
+          # 로컬에 있는 prod 파일을 읽어서 환경변수(${...})를 실제 값으로 치환
+          envsubst < docker-compose.prod.yml > deploy_compose.yml
 
-#           # 확인용 출력
-#           cat deploy_compose.yml
+          # 확인용 출력
+          cat deploy_compose.yml
 
-#           # 이름 변경 (전송용)
-#           mv deploy_compose.yml docker-compose.prod.yml
+          # 이름 변경 (전송용)
+          mv deploy_compose.yml docker-compose.prod.yml
 
-#       - name: Deploy to EC2 via SSM (Fire and Forget)
-#         env:
-#           REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
-#           IMAGE_TAG: ${{ github.sha }}
-#           INSTANCE_ID: ${{ steps.ec2-details.outputs.instance-id }}
-#           AWS_REGION: ${{ steps.ecr-details.outputs.region }}
-#           ECR_REGISTRY: ${{ steps.ecr-details.outputs.registry }}
-#         run: |
-#           COMPOSE_CONTENT=$(cat docker-compose.prod.yml | base64 -w 0)
+      - name: Deploy to EC2 via SSM (Fire and Forget)
+        env:
+          REPOSITORY_URI: ${{ steps.ecr-details.outputs.repository-uri }}
+          IMAGE_TAG: ${{ github.sha }}
+          INSTANCE_ID: ${{ steps.ec2-details.outputs.instance-id }}
+          AWS_REGION: ${{ steps.ecr-details.outputs.region }}
+          ECR_REGISTRY: ${{ steps.ecr-details.outputs.registry }}
+        run: |
+          COMPOSE_CONTENT=$(cat docker-compose.prod.yml | base64 -w 0)
 
-#           COMMAND_ID=$(aws ssm send-command \
-#             --instance-ids $INSTANCE_ID \
-#             --document-name "AWS-RunShellScript" \
-#             --parameters commands="[
-#               'set -e',
-#               'exec > >(tee -a /var/log/kindmap-deploy.log) 2>&1',
-#               'echo \"Started Deployment: \$(date)\"',
-#               'mkdir -p /home/ec2-user/kindmap',
-#               'cd /home/ec2-user/kindmap',
-#               'echo \"${COMPOSE_CONTENT}\" | base64 -d > docker-compose.yml',
-#               'aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}',
-#               'docker pull ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}',
-#               'docker pull ${REPOSITORY_URI}:nginx-${IMAGE_TAG}',
-#               'docker-compose down || true',
-#               'docker-compose up -d',
-#               'docker image prune -af --filter \"until=24h\"',
-#               'echo \"Deployment Success: \$(date)\"'
-#             ]" \
-#             --region $AWS_REGION \
-#             --output text \
-#             --query 'Command.CommandId')
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands="[
+              'set -e',
+              'exec > >(tee -a /var/log/kindmap-deploy.log) 2>&1',
+              'echo \"Started Deployment: \$(date)\"',
+              'mkdir -p /home/ec2-user/kindmap',
+              'cd /home/ec2-user/kindmap',
+              'echo \"${COMPOSE_CONTENT}\" | base64 -d > docker-compose.yml',
+              'aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}',
+              'docker pull ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}',
+              'docker pull ${REPOSITORY_URI}:nginx-${IMAGE_TAG}',
+              'docker-compose down || true',
+              'docker-compose up -d',
+              'docker image prune -af --filter \"until=24h\"',
+              'echo \"Deployment Success: \$(date)\"'
+            ]" \
+            --region $AWS_REGION \
+            --output text \
+            --query 'Command.CommandId')
 
-#           echo "Deployment Command ID: $COMMAND_ID"
+          echo "Deployment Command ID: $COMMAND_ID"

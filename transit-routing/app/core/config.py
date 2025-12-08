@@ -44,6 +44,17 @@ class Settings:
         os.getenv("ENABLE_CACHE_METRICS", "true").lower() == "true"
     )
 
+    # C++ 엔진 사용 여부
+    USE_CPP_ENGINE: bool = os.getenv("USE_CPP_ENGINE", "false").lower() == "true"
+
+    # 성능 모니터링 설정
+    ENABLE_PERFORMANCE_MONITORING: bool = (
+        os.getenv("ENABLE_PERFORMANCE_MONITORING", "true").lower() == "true"
+    )
+    SLOW_REQUEST_THRESHOLD_MS: int = int(
+        os.getenv("SLOW_REQUEST_THRESHOLD_MS", 1000)
+    )  # 느린 요청 기준 (ms)
+
     CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/1")
     CELERY_RESULT_BACKEND: str = os.getenv(
         "CELERY_RESULT_BACKEND", "redis://redis:6379/2"

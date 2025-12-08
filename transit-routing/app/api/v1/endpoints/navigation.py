@@ -7,7 +7,7 @@ import logging
 from functools import lru_cache
 from app.models.requests import NavigationStartRequest
 from app.models.responses import RouteCalculatedResponse
-from app.services.pathfinding_service import PathfindingService
+from app.services.pathfinding_factory import get_pathfinding_service, get_engine_info
 from app.core.exceptions import KindMapException
 from app.api.deps import get_current_user
 from app.models.domain import User
@@ -18,12 +18,6 @@ import asyncio
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-# lru_cache 사용하여 싱글톤 패턴과 유사한 효과, 의존성 주입
-@lru_cache()
-def get_pathfinding_service() -> PathfindingService:
-    return PathfindingService()
 
 
 # def get_pathfinding_service():
@@ -39,7 +33,7 @@ def get_pathfinding_service() -> PathfindingService:
 async def calculate_route(
     request: NavigationStartRequest,
     current_user: Optional[User] = Depends(get_current_user),
-    service: PathfindingService = Depends(get_pathfinding_service),
+    service=Depends(get_pathfinding_service),  # PathfindingService 또는 PathfindingServiceCPP
 ):
     """
     경로 계산 (REST API) + cache metric logging 추가
