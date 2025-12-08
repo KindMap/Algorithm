@@ -419,3 +419,53 @@ def get_all_congestion_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"혼잡도 데이터 조회 실패: {e}")
         return []
+
+
+def _load_facility_rows(self) -> list:
+    """
+    [New] DB에서 편의시설 데이터를 조회하여 C++ 엔진에 전달할 포맷으로 변환
+    Target Table: subway_facility_total
+    """
+    query = """
+            SELECT 
+                station_cd_list,
+                charger_count, elevator_count, escalator_count, 
+                lift_count, movingwalk_count, safe_platform_count, 
+                sign_phone_count, toilet_count, helper_count
+            FROM subway_facility_total
+        """
+    results = []
+    # get_db_cursor는 app.db.database 등에서 import 필요
+    from app.db.database import get_db_cursor
+
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+            for row in rows:
+                # Postgres 배열 타입 처리 (이미 리스트라면 그대로 사용)
+                cd_list = row["station_cd_list"]
+                if isinstance(cd_list, str):
+                    # "{0201,0202}" 형태의 문자열로 올 경우 파싱
+                    cd_list = cd_list.strip("{}").split(",")
+
+                # C++ update_facility_scores가 기대하는 키 이름과 정확히 일치해야 함
+                results.append(
+                    {
+                        "station_cd_list": cd_list,
+                        "charger_count": float(row["charger_count"] or 0),
+                        "elevator_count": float(row["elevator_count"] or 0),
+                        "escalator_count": float(row["escalator_count"] or 0),
+                        "lift_count": float(row["lift_count"] or 0),
+                        "movingwalk_count": float(row["movingwalk_count"] or 0),
+                        "safe_platform_count": float(row["safe_platform_count"] or 0),
+                        "sign_phone_count": float(row["sign_phone_count"] or 0),
+                        "toilet_count": float(row["toilet_count"] or 0),
+                        "helper_count": float(row["helper_count"] or 0),
+                    }
+                )
+        return results
+    except Exception as e:
+        logger.error(f"편의시설 데이터 로드 실패: {e}")
+        return []

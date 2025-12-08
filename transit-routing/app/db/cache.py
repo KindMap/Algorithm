@@ -57,6 +57,7 @@ def initialize_cache():
             get_all_transfer_station_conv_scores,
             get_all_facility_data,
             get_all_congestion_data,
+            _load_facility_rows,
         )
 
         logger.info("데이터 캐시 초기화 시작")
@@ -437,3 +438,28 @@ def get_all_congestion_cache() -> Dict:
     if not _cache_init:
         initialize_cache()
     return _congestion_cache
+
+
+def refresh_facility_scores(self):
+    """
+    [New] 편의시설 점수 갱신 (C++ 엔진 업데이트)
+    이 메서드가 스케줄러와 초기화 시점에 호출됩니다.
+    """
+    try:
+        # 1. DB에서 데이터 로드
+        facility_rows = self._load_facility_rows()
+
+        if not facility_rows:
+            logger.warning("업데이트할 편의시설 데이터가 없습니다.")
+            return
+
+        # 2. C++ 메서드 호출 (질문하신 메서드가 호출되는 지점)
+        # update_facility_scores는 bindings.cpp에 바인딩되어 있어야 함
+        self.data_container.update_facility_scores(facility_rows)
+
+        logger.info(
+            f"✅ C++ 엔진 편의시설 점수 업데이트 완료 ({len(facility_rows)}개 역 그룹)"
+        )
+
+    except Exception as e:
+        logger.error(f"C++ 엔진 업데이트 중 오류 발생: {e}")

@@ -58,8 +58,8 @@ services:
       --keep-alive 120
       --worker-connections 1000
 
-    volumes:
-      - /home/ec2-user/model_cache:/root/.cache/huggingface
+    # volumes:
+    #   - /home/ec2-user/model_cache:/root/.cache/huggingface
 
     deploy:
       # [Modified] 레플리카 3개로 확장
