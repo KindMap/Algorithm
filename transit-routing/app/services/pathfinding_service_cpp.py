@@ -197,11 +197,11 @@ class PathfindingServiceCPP:
         # C++ DataContainer에 데이터 로드
         logger.info("C++ DataContainer에 데이터 전송 중...")
         data_container.load_from_python(
-            stations=stations_dict,
-            line_stations=line_stations_dict,
-            station_order=station_order_dict,
-            transfers=transfers_dict,
-            congestion=congestion_dict,
+            stations_dict,
+            line_stations_dict,
+            station_order_dict,
+            transfers_dict,
+            congestion_dict,
         )
 
         # 6. 편의시설 데이터 로드 및 편의성 점수 계산
