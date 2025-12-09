@@ -252,15 +252,15 @@ namespace pathfinding
         return "";
     }
 
-    const StationInfo &DataContainer::get_station(StationID id) const
-    {
-        return stations_[id];
-    }
+    // const StationInfo &DataContainer::get_station(StationID id) const
+    // {
+    //     return stations_[id];
+    // }
 
-    const std::vector<std::string> &DataContainer::get_lines(StationID id) const
-    {
-        return station_lines_[id];
-    }
+    // const std::vector<std::string> &DataContainer::get_lines(StationID id) const
+    // {
+    //     return station_lines_[id];
+    // }
 
     const DataContainer::DirectionLines &DataContainer::get_next_stations(StationID id, const std::string &line) const
     {
