@@ -47,27 +47,51 @@ class PathfindingServiceCPP:
         3. McRaptorEngine 초기화
         4. Redis 캐시 클라이언트 초기화
         """
+        logger.debug("🔧 PathfindingServiceCPP 초기화 시작")
+        
         try:
             # C++ 모듈 import
+            logger.debug("📦 C++ pathfinding_cpp 모듈 import 시도...")
             import pathfinding_cpp
 
             self.cpp_module = pathfinding_cpp
-            logger.info("pathfinding_cpp 모듈 로드 성공")
+            logger.info("✅ pathfinding_cpp 모듈 로드 성공")
+            logger.debug(f"   - 모듈 경로: {pathfinding_cpp.__file__}")
 
         except ImportError as e:
             logger.error(
-                f"pathfinding_cpp 모듈을 찾을 수 없습니다: {e}\n"
+                f"❌ pathfinding_cpp 모듈을 찾을 수 없습니다: {e}\n"
                 "C++ 엔진을 빌드해야 합니다: cd cpp_src && mkdir build && cd build && cmake .. && make"
             )
+            logger.debug(f"   - ImportError 상세: {type(e).__name__}: {str(e)}")
             raise RuntimeError("C++ pathfinding_cpp 모듈이 설치되지 않았습니다") from e
+        except Exception as e:
+            logger.error(f"❌ C++ 모듈 로드 중 예상치 못한 오류: {e}")
+            logger.debug(f"   - 예외 타입: {type(e).__name__}")
+            raise
 
         # Python 캐시에서 기본 데이터 가져오기
-        self.stations = get_stations_dict()
-        self.redis_client = RedisSessionManager()
+        logger.debug("📊 Python 캐시 데이터 로드 중...")
+        try:
+            self.stations = get_stations_dict()
+            logger.debug(f"   - 역 정보: {len(self.stations)}개 로드")
+            
+            self.redis_client = RedisSessionManager()
+            logger.debug("   - Redis 클라이언트 초기화 완료")
+        except Exception as e:
+            logger.error(f"❌ Python 캐시 로드 실패: {e}")
+            logger.debug(f"   - 예외 타입: {type(e).__name__}")
+            raise
 
         # C++ 데이터 컨테이너 초기화 및 데이터 로드
-        logger.info("C++ DataContainer 초기화 시작...")
-        self.data_container = self._initialize_cpp_data()
+        logger.info("🚀 C++ DataContainer 초기화 시작...")
+        try:
+            self.data_container = self._initialize_cpp_data()
+            logger.debug("   - DataContainer 초기화 성공")
+        except Exception as e:
+            logger.error(f"❌ DataContainer 초기화 실패: {e}")
+            logger.debug(f"   - 예외 타입: {type(e).__name__}")
+            raise
 
         # C++ 엔진 초기화
         # logger.info("C++ McRaptorEngine 초기화 시작...")
@@ -75,7 +99,8 @@ class PathfindingServiceCPP:
         # => labels_pools_를 공유하게 되므로 이와 같은 싱글톤 패턴 사용 시, 반드시 크래시 발생
         # => request마다 엔진을 생성하는 팩토리 패턴으로 변경 적용
 
-        logger.info("PathfindingServiceCPP 초기화 완료 (C++ 엔진 + 캐싱 활성화)")
+        logger.info("✅ PathfindingServiceCPP 초기화 완료 (C++ 엔진 + 캐싱 활성화)")
+        logger.debug("=" * 60)
 
     def _initialize_cpp_data(self):
         """

@@ -21,7 +21,8 @@
       "Bash(find:*)",
       "mcp__serena__find_file",
       "mcp__serena__think_about_collected_information",
-      "mcp__serena__initial_instructions"
+      "mcp__serena__initial_instructions",
+      "mcp__serena__replace_content"
     ],
     "deny": [],
     "ask": []
