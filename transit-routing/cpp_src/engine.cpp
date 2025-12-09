@@ -47,11 +47,11 @@ namespace pathfinding
         // RAPTOR Rounds
         for (int round = 1; round <= max_rounds; ++round)
         {
-            std::cerr << "[DEBUG] Round " << round << " started. Marked stations: " << marked_stations.size() << std::endl;
+            // std::cerr << "[DEBUG] Round " << round << " started. Marked stations: " << marked_stations.size() << std::endl;
 
             if (marked_stations.empty())
             {
-                std::cerr << "[DEBUG] No marked stations. Stopping early." << std::endl;
+                // std::cerr << "[DEBUG] No marked stations. Stopping early." << std::endl;
                 break;
             }
             std::unordered_set<StationID> next_marked;
@@ -64,7 +64,7 @@ namespace pathfinding
             {
                 if (++processed_count > 5000)
                 {
-                    std::cerr << "[CRITICAL] Too many stations in queue! Aborting to prevent freeze." << std::endl;
+                    // std::cerr << "[CRITICAL] Too many stations in queue! Aborting to prevent freeze." << std::endl;
                     return {};
                 }
 
@@ -74,12 +74,12 @@ namespace pathfinding
                 for (LabelIndex l_idx : current_labels)
                 {
                     const Label L = label_pool_[l_idx];
-                    if (round == 2)
-                    {
-                        std::cerr << "[DEBUG R2] Processing Stn: " << u
-                                  << " (" << data_.get_code(u) << ")"
-                                  << " Line: " << L.current_line << std::endl;
-                    }
+                    // if (round == 2)
+                    // {
+                    //     std::cerr << "[DEBUG R2] Processing Stn: " << u
+                    //               << " (" << data_.get_code(u) << ")"
+                    //               << " Line: " << L.current_line << std::endl;
+                    // }
                     if (L.created_round >= round)
                         continue;
                     if (dest_ids.count(u))
@@ -87,10 +87,10 @@ namespace pathfinding
 
                     // A. Scanning
                     auto next_stops = data_.get_next_stations(u, L.current_line);
-                    if (round == 2 && (next_stops.up.size() > 50 || next_stops.down.size() > 50))
-                    {
-                        std::cerr << "[WARNING] Suspiciously many next stops for Stn " << u << std::endl;
-                    }
+                    // if (round == 2 && (next_stops.up.size() > 50 || next_stops.down.size() > 50))
+                    // {
+                    //     std::cerr << "[WARNING] Suspiciously many next stops for Stn " << u << std::endl;
+                    // }
                     auto process_dir = [&](const std::vector<StationID> &targets, Direction dir)
                     {
                         double cum_time = 0;
