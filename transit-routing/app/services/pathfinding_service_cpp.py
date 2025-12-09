@@ -319,11 +319,11 @@ class PathfindingServiceCPP:
             )
 
             routes = self.cpp_engine.find_routes(
-                origin_cd=origin_cd,
-                dest_cds={destination_cd},
-                departure_time=departure_time,
-                disability_type=disability_type,
-                max_rounds=5,
+                origin_cd,
+                {destination_cd},
+                departure_time,
+                disability_type,
+                5,
             )
 
             if not routes:
