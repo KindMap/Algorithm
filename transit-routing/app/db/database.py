@@ -432,7 +432,7 @@ def get_all_congestion_data() -> List[Dict]:
         return []
 
 
-def _load_facility_rows(self) -> list:
+def load_facility_rows() -> list:
     """
     [New] DB에서 편의시설 데이터를 조회하여 C++ 엔진에 전달할 포맷으로 변환
     Target Table: subway_facility_total
