@@ -1,14 +1,25 @@
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+from psycopg2.extensions import register_adapter, AsIs
 from typing import List, Dict, Optional
 from contextlib import contextmanager
+from uuid import UUID
 import logging
 
 from app.algorithms.distance_calculator import DistanceCalculator
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# UUID 타입을 PostgreSQL에서 사용할 수 있도록 어댑터 등록
+def adapt_uuid(uuid_value):
+    """UUID 객체를 PostgreSQL에서 사용 가능한 형식으로 변환"""
+    return AsIs(f"'{str(uuid_value)}'")
+
+# psycopg2가 UUID를 PostgreSQL UUID로 자동 변환하도록 등록
+register_adapter(UUID, adapt_uuid)
+logger.info("UUID adapter registered for PostgreSQL")
 
 _connection_pool = None
 _distance_calculator = None
