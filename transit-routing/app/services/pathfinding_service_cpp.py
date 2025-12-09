@@ -507,3 +507,23 @@ class PathfindingServiceCPP:
             metrics["routes_found"] = routes_found
 
         logger.info(f"METRICS: {json.dumps(metrics, ensure_ascii=False)}")
+
+    def refresh_facility_scores(self):
+        """
+        편의시설 점수 데이터를 C++ 엔진에 업데이트
+
+        데이터베이스에서 최신 편의시설 데이터를 로드하여
+        C++ DataContainer에 반영합니다.
+        """
+        try:
+            from app.db.database import load_facility_rows
+
+            facility_rows = load_facility_rows()
+            if not facility_rows:
+                logger.warning("업데이트할 편의시설 데이터가 없습니다.")
+                return
+
+            self.data_container.update_facility_scores(facility_rows)
+            logger.info(f"✅ C++ 엔진 편의시설 점수 업데이트 완료")
+        except Exception as e:
+            logger.error(f"C++ 엔진 업데이트 중 오류 발생: {e}")

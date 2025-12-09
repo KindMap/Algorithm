@@ -45,19 +45,14 @@ def initialize_cache():
             logger.info("캐시가 이미 초기화되었습니다.")
             return
 
-        # 테스트 모드 체크: DB 연결 스킵 => for local unit test
-        # if os.getenv("TESTING") == "true":
-        #     _cache_init = True
-        #     logger.info("테스트 모드: 캐시 초기화 스킵")
-        #     return
-
         from app.db.database import (
             get_all_stations,
             get_all_sections,
             get_all_transfer_station_conv_scores,
             get_all_facility_data,
             get_all_congestion_data,
-            _load_facility_rows,
+            # [수정] _load_facility_rows -> load_facility_rows (언더스코어 제거)
+            load_facility_rows,
         )
 
         logger.info("데이터 캐시 초기화 시작")
@@ -132,98 +127,47 @@ def initialize_cache():
 
 
 def get_stations_dict() -> Dict[str, Dict]:
-    """
-    역 정보 딕셔너리 반환 {station_cd: station_info}
-
-    Returns:
-        {
-            "0222": {"station_cd": "0222", "name": "강남", "line": "2호선", ...},
-            ...
-        }
-    """
     if not _cache_init:
         initialize_cache()
     return _stations_cache
 
 
 def get_stations_list() -> List[Dict]:
-    """
-    역 정보 리스트 반환
-    """
     if not _cache_init:
         initialize_cache()
     return _stations_list_cache
 
 
 def get_station_name_map() -> Dict[str, str]:
-    """
-    역 이름 → 코드 매핑 반환 {name: station_cd}
-
-    Returns:
-        {"강남": "0222", "역삼": "0223", ...}
-    """
     if not _cache_init:
         initialize_cache()
     return _station_name_map_cache
 
 
 def get_sections_list() -> List[Dict]:
-    """
-    구간 정보 리스트 반환
-    """
     if not _cache_init:
         initialize_cache()
     return _sections_cache
 
 
 def get_transfer_conv_dict() -> Dict[str, Dict]:
-    """
-    환승역 편의성 정보 반환 {station_cd: conv_scores}
-    """
     if not _cache_init:
         initialize_cache()
     return _transfer_conv_cache
 
 
 def get_station_by_code(station_cd: str) -> Optional[Dict]:
-    """
-    캐시에서 역 정보 조회
-
-    Args:
-        station_cd: 역 코드
-
-    Returns:
-        역 정보 딕셔너리 또는 None
-    """
     if not _cache_init:
         initialize_cache()
     return _stations_cache.get(station_cd)
 
 
 def get_station_name_by_code(station_cd: str) -> str:
-    """
-    캐시에서 역 이름 조회
-
-    Args:
-        station_cd: 역 코드
-
-    Returns:
-        역 이름 (없으면 station_cd 반환)
-    """
     station = get_station_by_code(station_cd)
     return station["name"] if station else station_cd
 
 
 def get_station_cd_by_name(station_name: str) -> Optional[str]:
-    """
-    캐시에서 역 코드 조회 (정확 일치 → 부분 일치)
-
-    Args:
-        station_name: 역 이름
-
-    Returns:
-        역 코드 또는 None
-    """
     if not _cache_init:
         initialize_cache()
 
@@ -239,7 +183,7 @@ def get_station_cd_by_name(station_name: str) -> Optional[str]:
             logger.debug(f"부분 일치: {station_name} → {name} ({cd})")
             return cd
 
-    # 3단계: DB 쿼리 (캐시 미스 - 드물게 발생)
+    # 3단계: DB 쿼리
     logger.warning(f"캐시에서 역을 찾을 수 없음, DB 조회 시도: {station_name}")
     from app.db.database import get_station_cd_by_name as db_get_station_cd
 
@@ -247,16 +191,6 @@ def get_station_cd_by_name(station_name: str) -> Optional[str]:
 
 
 def search_stations_by_name(keyword: str, limit: int = 10) -> List[Dict]:
-    """
-    캐시에서 역 검색 (자동완성용)
-
-    Args:
-        keyword: 검색 키워드
-        limit: 최대 결과 수
-
-    Returns:
-        검색 결과 리스트
-    """
     if not _cache_init:
         initialize_cache()
 
@@ -265,23 +199,16 @@ def search_stations_by_name(keyword: str, limit: int = 10) -> List[Dict]:
 
     for station in _stations_list_cache:
         name_lower = station["name"].lower()
-
-        # 검색 조건
         if keyword in name_lower:
-            # 우선순위 계산
             if name_lower == keyword:
-                priority = 1  # 정확 일치
+                priority = 1
             elif name_lower.startswith(keyword):
-                priority = 2  # 시작 일치
+                priority = 2
             else:
-                priority = 3  # 부분 일치
-
+                priority = 3
             results.append({**station, "_priority": priority})
 
-    # 우선순위 정렬
     results.sort(key=lambda x: (x["_priority"], len(x["name"]), x["name"]))
-
-    # _priority 필드 제거
     for r in results:
         r.pop("_priority", None)
 
@@ -289,71 +216,29 @@ def search_stations_by_name(keyword: str, limit: int = 10) -> List[Dict]:
 
 
 def get_transfer_conv_by_code(station_cd: str) -> Optional[Dict]:
-    """
-    캐시에서 환승역 편의성 정보 조회
-    """
     if not _cache_init:
         initialize_cache()
     return _transfer_conv_cache.get(station_cd)
 
 
 def get_lines_dict() -> Dict[str, List[str]]:
-    """
-    호선별 역 코드 딕셔너리 반환 {line: [station_cd, ...]}
-
-    Returns:
-        {
-            "1호선": ["0150", "0151", ...],
-            "2호선": ["0201", "0202", ...],
-            ...
-        }
-    """
     if not _cache_init:
         initialize_cache()
     return _lines_cache
 
 
 def get_stations_by_line(line: str) -> List[str]:
-    """
-    특정 호선의 역 코드 리스트 반환
-
-    Args:
-        line: 호선명 (예: "1호선", "2호선")
-
-    Returns:
-        역 코드 리스트 (예: ["0201", "0202", ...])
-
-    Example:
-        >>> get_stations_by_line("2호선")
-        ["0201", "0202", "0203", ...]
-    """
     if not _cache_init:
         initialize_cache()
     return _lines_cache.get(line, [])
 
 
 def get_line_by_station_cd(station_cd: str) -> Optional[str]:
-    """
-    역 코드로 호선명 조회
-
-    Args:
-        station_cd: 역 코드
-
-    Returns:
-        호선명 또는 None
-
-    Example:
-        >>> get_line_by_station_cd("0222")
-        "2호선"
-    """
     station = get_station_by_code(station_cd)
     return station["line"] if station else None
 
 
 def clear_cache():
-    """
-    캐시 초기화 (테스트용)
-    """
     global _cache_init
     global _stations_cache, _stations_list_cache, _station_name_map_cache
     global _sections_cache, _transfer_conv_cache
@@ -374,92 +259,36 @@ def clear_cache():
 
 
 def reload_cache():
-    """
-    캐시 재로드
-    """
     clear_cache()
     initialize_cache()
 
 
 def get_facility_info_by_name(station_name: str) -> Optional[Dict]:
-    """
-    역 이름으로 편의시설 정보 조회
-    Args:
-        station_name: 역 이름 (예: "강남")
-    Returns:
-        편의시설 정보 Dict 또는 None
-    """
     if not _cache_init:
         initialize_cache()
     return _facility_cache.get(station_name)
 
 
 def get_facility_info_by_cd(station_cd: str) -> Optional[Dict]:
-    """
-    역 코드로 편의시설 정보 조회
-    (역 코드로 이름을 찾은 후 편의시설 조회)
-    """
     if not _cache_init:
         initialize_cache()
-
     station_name = get_station_name_by_code(station_cd)
     if not station_name:
         return None
-
     return _facility_cache.get(station_name)
 
 
 def get_congestion_data(
     station_cd: str, line: str, direction: str, day_type: str
 ) -> Optional[Dict[str, float]]:
-    """
-    특정 역, 노선, 방향, 요일의 시간대별 혼잡도 조회
-
-    Args:
-        station_cd: 역 코드
-        line: 호선
-        direction: 방향 (up/down/in/out)
-        day_type: 요일 구분 (weekday/sat/sun)
-
-    Returns:
-        {"t_540": 0.3, "t_570": 0.5, ...} 또는 None
-    """
     if not _cache_init:
         initialize_cache()
-
     key = (station_cd, line, direction, day_type)
     return _congestion_cache.get(key)
 
 
 def get_all_congestion_cache() -> Dict:
-    """
-    C++ 엔진 초기화용 전체 혼잡도 데이터 반환
-    """
     if not _cache_init:
         initialize_cache()
     return _congestion_cache
 
-
-def refresh_facility_scores(self):
-    """
-    [New] 편의시설 점수 갱신 (C++ 엔진 업데이트)
-    이 메서드가 스케줄러와 초기화 시점에 호출됩니다.
-    """
-    try:
-        # 1. DB에서 데이터 로드
-        facility_rows = self._load_facility_rows()
-
-        if not facility_rows:
-            logger.warning("업데이트할 편의시설 데이터가 없습니다.")
-            return
-
-        # 2. C++ 메서드 호출 (질문하신 메서드가 호출되는 지점)
-        # update_facility_scores는 bindings.cpp에 바인딩되어 있어야 함
-        self.data_container.update_facility_scores(facility_rows)
-
-        logger.info(
-            f"✅ C++ 엔진 편의시설 점수 업데이트 완료 ({len(facility_rows)}개 역 그룹)"
-        )
-
-    except Exception as e:
-        logger.error(f"C++ 엔진 업데이트 중 오류 발생: {e}")
