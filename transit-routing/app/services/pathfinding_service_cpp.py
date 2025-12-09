@@ -70,8 +70,10 @@ class PathfindingServiceCPP:
         self.data_container = self._initialize_cpp_data()
 
         # C++ 엔진 초기화
-        logger.info("C++ McRaptorEngine 초기화 시작...")
-        self.cpp_engine = pathfinding_cpp.McRaptorEngine(self.data_container)
+        # logger.info("C++ McRaptorEngine 초기화 시작...")
+        # self.cpp_engine = pathfinding_cpp.McRaptorEngine(self.data_container)
+        # => labels_pools_를 공유하게 되므로 이와 같은 싱글톤 패턴 사용 시, 반드시 크래시 발생
+        # => request마다 엔진을 생성하는 팩토리 패턴으로 변경 적용
 
         logger.info("PathfindingServiceCPP 초기화 완료 (C++ 엔진 + 캐싱 활성화)")
 
@@ -241,7 +243,7 @@ class PathfindingServiceCPP:
         self, origin_name: str, destination_name: str, disability_type: str
     ) -> Optional[Dict[str, Any]]:
         """
-        C++ 엔진을 사용한 경로 계산 및 상위 3개 경로 반환
+        C++ 엔진을 사용한 경로 계산 및 상위 3개 경로 반환 + factory pattern
 
         Args:
             origin_name: 출발지 역 이름
@@ -312,13 +314,18 @@ class PathfindingServiceCPP:
 
             departure_time = datetime.now().timestamp()  # Unix timestamp
 
+            # 요청마다 새로운 엔진 인스턴스 생성 Thread-Safe 보장
+            # DataContainer는 공유되지만 Read-Only이므로 안전
+            engine = self.cpp_module.McRaptorEngine(self.data_container)
+
             # C++ 엔진 호출
             logger.debug(
                 f"[C++] find_routes 호출: {origin_cd} → {destination_cd}, "
                 f"type={disability_type}"
             )
 
-            routes = self.cpp_engine.find_routes(
+            # local variable 사용
+            routes = engine.find_routes(
                 origin_cd,
                 {destination_cd},
                 departure_time,
@@ -332,7 +339,7 @@ class PathfindingServiceCPP:
                 )
 
             # C++ 엔진으로 경로 정렬
-            ranked_routes = self.cpp_engine.rank_routes(routes, disability_type)
+            ranked_routes = engine.rank_routes(routes, disability_type)
 
             calculation_time = time.time() - calculation_start
             logger.debug(
@@ -347,10 +354,10 @@ class PathfindingServiceCPP:
             routes_info = []
             for rank, (label, score) in enumerate(top_3_routes, start=1):
                 # C++ Label 객체에서 정보 추출
-                route_sequence = self.cpp_engine.reconstruct_route(
+                route_sequence = engine.reconstruct_route(
                     label, self.data_container
                 )
-                route_lines = self.cpp_engine.reconstruct_lines(label)
+                route_lines = engine.reconstruct_lines(label)
 
                 # 환승 정보 추출 (Label 객체를 역추적하여 구성)
                 transfer_info = self._extract_transfer_info(label)
