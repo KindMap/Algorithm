@@ -136,18 +136,28 @@ class PathfindingServiceCPP:
         logger.debug(f"역 순서 맵 로드 완료: {len(station_order_dict)}개 항목")
 
         # 4. 환승 정보 (transfers)
-        # 현재는 기본 환승 거리만 사용 (편의성 점수는 편의시설 데이터로 대체)
-        # 실제 노선별 환승 거리는 별도 테이블에서 조회 가능하나,
-        # 현재는 기본값 사용
+        # C++는 (station_cd, from_line, to_line) 튜플 키를 기대합니다
         transfers_dict = {}
 
-        # 모든 역을 기본 환승역으로 등록 (실제 환승 가능 여부는 노선 데이터로 판단)
-        for station_cd in stations_dict.keys():
-            transfers_dict[station_cd] = {
-                "distance": 133.09,  # 기본 환승 거리 (미터)
-            }
+        # 각 역에서 가능한 모든 노선 조합에 대한 환승 정보 생성
+        for station_cd, station_info in stations_dict.items():
+            # 해당 역에서 이용 가능한 모든 노선 찾기
+            station_lines = []
+            for st_cd, st_info in stations_dict.items():
+                if st_info["name"] == station_info["name"]:  # 같은 역 이름
+                    if st_info["line"] not in station_lines:
+                        station_lines.append(st_info["line"])
 
-        logger.debug(f"환승 정보 로드 완료: {len(transfers_dict)}개 역")
+            # 환승 가능한 모든 조합 생성 (from_line -> to_line)
+            for from_line in station_lines:
+                for to_line in station_lines:
+                    if from_line != to_line:  # 다른 노선으로 환승하는 경우만
+                        key = (station_cd, from_line, to_line)
+                        transfers_dict[key] = {
+                            "distance": 133.09,  # 기본 환승 거리 (미터)
+                        }
+
+        logger.debug(f"환승 정보 로드 완료: {len(transfers_dict)}개 환승 조합")
 
         # 5. 혼잡도 정보 (congestion)
         congestion_dict = {}
