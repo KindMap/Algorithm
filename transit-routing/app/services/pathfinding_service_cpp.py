@@ -139,20 +139,25 @@ class PathfindingServiceCPP:
         # C++는 (station_cd, from_line, to_line) 튜플 키를 기대합니다
         transfers_dict = {}
 
-        # 각 역에서 가능한 모든 노선 조합에 대한 환승 정보 생성
+        # 역 이름별로 그룹화: {역이름: [(station_cd, line), ...]}
+        station_name_map = {}
         for station_cd, station_info in stations_dict.items():
-            # 해당 역에서 이용 가능한 모든 노선 찾기
-            station_lines = []
-            for st_cd, st_info in stations_dict.items():
-                if st_info["name"] == station_info["name"]:  # 같은 역 이름
-                    if st_info["line"] not in station_lines:
-                        station_lines.append(st_info["line"])
+            station_name = station_info["name"]
+            if station_name not in station_name_map:
+                station_name_map[station_name] = []
+            station_name_map[station_name].append((station_cd, station_info["line"]))
 
-            # 환승 가능한 모든 조합 생성 (from_line -> to_line)
-            for from_line in station_lines:
-                for to_line in station_lines:
-                    if from_line != to_line:  # 다른 노선으로 환승하는 경우만
-                        key = (station_cd, from_line, to_line)
+        # 환승역(2개 이상 노선이 있는 역)에 대해 환승 조합 생성
+        for station_name, station_line_pairs in station_name_map.items():
+            if len(station_line_pairs) < 2:
+                continue  # 환승역이 아님
+
+            # 모든 노선 조합에 대해 환승 정보 생성
+            for from_cd, from_line in station_line_pairs:
+                for to_cd, to_line in station_line_pairs:
+                    if from_line != to_line:  # 다른 노선으로 환승
+                        # from_line의 station_cd를 키로 사용
+                        key = (from_cd, from_line, to_line)
                         transfers_dict[key] = {
                             "distance": 133.09,  # 기본 환승 거리 (미터)
                         }
