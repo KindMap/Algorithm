@@ -39,8 +39,27 @@ namespace pathfinding
         // Getters
         StationID get_id(const std::string &cd) const;
         std::string get_code(StationID id) const;
-        const StationInfo &get_station(StationID id) const;
-        const std::vector<std::string> &get_lines(StationID id) const;
+        const StationInfo &get_station(StationID id) const
+        {
+            if (stations_.empty())
+            {
+                static const StationInfo dummy = {0, "", "Unknown", "", 0.0, 0.0};
+                return dummy;
+            }
+            // 인덱스 초과 시 0번 역 반환 (Crash 방지)
+            if (id >= stations_.size())
+                return stations_[0];
+            return stations_[id];
+        }
+        const std::vector<std::string> &get_lines(StationID id) const
+        {
+            if (id >= station_lines_.size())
+            {
+                static const std::vector<std::string> empty;
+                return empty;
+            }
+            return station_lines_[id];
+        }
 
         struct DirectionLines
         {

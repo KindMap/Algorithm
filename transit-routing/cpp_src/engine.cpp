@@ -2,6 +2,7 @@
 #include "utils.h"
 #include <algorithm>
 #include <shared_mutex>
+#include <iostream>
 
 namespace pathfinding
 {
@@ -46,8 +47,12 @@ namespace pathfinding
         // RAPTOR Rounds
         for (int round = 1; round <= max_rounds; ++round)
         {
-            if (marked_stations.empty())
+            std::cerr << "[DEBUG] Round " << round << " started. Marked stations: " << marked_stations.size() << std::endl;
+
+            if (marked_stations.empty()){
+                std::cerr << "[DEBUG] No marked stations. Stopping early." << std::endl;
                 break;
+            }
             std::unordered_set<StationID> next_marked;
             std::vector<StationID> queue(marked_stations.begin(), marked_stations.end());
             marked_stations.clear();
