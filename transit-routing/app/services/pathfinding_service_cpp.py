@@ -229,8 +229,11 @@ class PathfindingServiceCPP:
         # 역 이름별로 그룹화: {역이름: [(station_cd, line), ...]}
         station_name_map = {}
         for station_cd, station_info in stations_dict.items():
-            station_name = station_info["name"]
-            if station_name not in station_name_map:
+
+            # 역 이름 정규화 추가
+            raw_name = station_info["name"]
+            norm_name = raw_name.split("(")[0].replace("역", "").strip()
+            if norm_name not in station_name_map:
                 station_name_map[station_name] = []
             station_name_map[station_name].append((station_cd, station_info["line"]))
 

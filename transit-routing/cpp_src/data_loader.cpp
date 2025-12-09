@@ -41,14 +41,19 @@ namespace pathfinding
             }
         }
 
-        // Station Lines 구축
+        // Station Lines 구축 => 이름이 같으면 모든 노선을 다 넣어버림
+        // for (const auto &s : stations_)
+        // {
+        //     for (const auto &t : stations_)
+        //     {
+        //         if (s.name == t.name)
+        //             station_lines_[s.id].push_back(t.line);
+        //     }
+        // }
+        // 자기 자신의 노선만 등록 (환승은 transfers_ 맵을 통해서만 이동)
         for (const auto &s : stations_)
         {
-            for (const auto &t : stations_)
-            {
-                if (s.name == t.name)
-                    station_lines_[s.id].push_back(t.line);
-            }
+            station_lines_[s.id].push_back(s.line);
         }
 
         // 2. Station Order (중간역 복원용)
