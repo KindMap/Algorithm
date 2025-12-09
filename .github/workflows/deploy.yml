@@ -115,6 +115,7 @@ jobs:
               'docker pull ${REPOSITORY_URI}:fastapi-${IMAGE_TAG}',
               'docker pull ${REPOSITORY_URI}:nginx-${IMAGE_TAG}',
               'docker-compose down || true',
+              'docker-compose pull',
               'docker-compose up -d --scale fastapi=3 --remove-orphans',
               'docker image prune -af --filter \"until=24h\"',
               'echo \"Deployment Success: \$(date)\"'
