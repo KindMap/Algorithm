@@ -327,12 +327,13 @@ async def api_info():
     }
 
 
-@app.get("/api/v1/metrics")
+@app.get("/v1/metrics")
 async def get_metrics():
     """
     성능 메트릭 엔드포인트
 
     애플리케이션 성능 통계 조회
+    (nginx가 /metrics -> /v1/metrics로 프록시)
     """
     if not settings.ENABLE_PERFORMANCE_MONITORING:
         return {"message": "성능 모니터링이 비활성화되어 있습니다"}

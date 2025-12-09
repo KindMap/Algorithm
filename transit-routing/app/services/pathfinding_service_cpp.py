@@ -360,7 +360,7 @@ class PathfindingServiceCPP:
                 route_lines = engine.reconstruct_lines(label)
 
                 # 환승 정보 추출 (Label 객체를 역추적하여 구성)
-                transfer_info = self._extract_transfer_info(label)
+                transfer_info = self._extract_transfer_info(label, engine)
                 transfer_stations = [t[0] for t in transfer_info]
 
                 route_info = {
@@ -424,7 +424,7 @@ class PathfindingServiceCPP:
             logger.error(f"[C++] 경로 계산 오류: {e}", exc_info=True)
             raise
 
-    def _extract_transfer_info(self, label) -> list:
+    def _extract_transfer_info(self, label, engine) -> list:
         """
         C++ Label 객체에서 환승 정보 추출
 
@@ -433,16 +433,17 @@ class PathfindingServiceCPP:
 
         Args:
             label: C++ Label 객체
+            engine: McRaptorEngine 인스턴스 (팩토리 패턴으로 요청마다 생성)
 
         Returns:
             List[Tuple[str, str, str]]: [(station_cd, from_line, to_line), ...]
         """
         try:
             # 경로 및 노선 재구성
-            route_sequence = self.cpp_engine.reconstruct_route(
+            route_sequence = engine.reconstruct_route(
                 label, self.data_container
             )
-            route_lines = self.cpp_engine.reconstruct_lines(label)
+            route_lines = engine.reconstruct_lines(label)
 
             # 길이 검증: route_sequence와 route_lines의 길이가 일치해야 함
             if len(route_sequence) != len(route_lines):
