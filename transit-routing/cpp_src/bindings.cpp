@@ -47,7 +47,12 @@ PYBIND11_MODULE(pathfinding_cpp, m)
 
     py::class_<DataContainer>(m, "DataContainer")
         .def(py::init<>())
-        .def("load_from_python", &DataContainer::load_from_python)
+        .def("load_from_python", &DataContainer::load_from_python,
+             py::arg("stations"),
+             py::arg("line_stations"),
+             py::arg("station_order"),
+             py::arg("transfers"),
+             py::arg("congestion")) // py::arg()를 사용하여 인자 이름 명시
         .def("update_facility_scores", &DataContainer::update_facility_scores)
         .def("get_code", &DataContainer::get_code);
 
