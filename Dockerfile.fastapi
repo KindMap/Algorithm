@@ -37,7 +37,10 @@ COPY transit-routing/ /app/transit-routing/
 # 작업 디렉토리 변경 후 C++ 모듈 빌드 & 설치
 WORKDIR /app/transit-routing
 # --user 옵션으로 /root/.local에 설치되도록 함 (나중에 Final Stage로 복사됨)
-RUN pip install --user .
+# C++ 모듈 컴파일 및 검증
+RUN pip install --user . && \
+    python -c "import pathfinding_cpp; print('✓ C++ module loaded successfully')" && \
+    python -c "from pathfinding_cpp import McRaptorEngine, DataContainer; print('✓ C++ classes imported successfully')"
 
 # -----------------------------------------------------------
 # 2. Final Stage: 실행 이미지 생성
