@@ -68,8 +68,10 @@ namespace pathfinding
                     return {};
                 }
 
-                const auto &labels = bags[u];
-                for (LabelIndex l_idx : labels)
+                // const auto &labels = bags[u]; => 참조 사용 위험!!!
+                std::vector<LabelIndex> current_labels = bags[u];
+
+                for (LabelIndex l_idx : current_labels)
                 {
                     const Label L = label_pool_[l_idx];
                     if (round == 2)
