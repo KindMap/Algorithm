@@ -647,9 +647,15 @@ async def handle_recalculate_route(
 
         logger.info(f"재계산 시작: {current_station_name} → {destination_name}")
 
-        # 새 경로 계산
-        route_data = pathfinding_service.calculate_route(
-            current_station_name, destination_name, disability_type
+        # 새 경로 계산 (ThreadPoolExecutor에서 실행하여 이벤트 루프 블로킹 방지)
+        route_data = await asyncio.wait_for(
+            run_in_threadpool(
+                pathfinding_service.calculate_route,
+                origin_name=current_station_name,
+                destination_name=destination_name,
+                disability_type=disability_type,
+            ),
+            timeout=60.0,
         )
 
         route_id = str(uuid.uuid4())
