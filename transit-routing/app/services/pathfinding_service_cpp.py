@@ -48,7 +48,7 @@ class PathfindingServiceCPP:
         4. Redis 캐시 클라이언트 초기화
         """
         logger.debug("🔧 PathfindingServiceCPP 초기화 시작")
-        
+
         try:
             # C++ 모듈 import
             logger.debug("📦 C++ pathfinding_cpp 모듈 import 시도...")
@@ -75,7 +75,7 @@ class PathfindingServiceCPP:
         try:
             self.stations = get_stations_dict()
             logger.debug(f"   - 역 정보: {len(self.stations)}개 로드")
-            
+
             self.redis_client = RedisSessionManager()
             logger.debug("   - Redis 클라이언트 초기화 완료")
         except Exception as e:
@@ -135,20 +135,77 @@ class PathfindingServiceCPP:
         # 2. 노선별 역 순서 (line_stations)
         line_stations_dict = {}
         lines_dict = get_lines_dict()
-        # sections = get_all_sections()
 
-        # line_stations 구조 생성
-        # {(station_cd, line): {"up": [station_cds...], "down": [station_cds...]}}
-        for line, station_cds in lines_dict.items():
-            for station_cd in station_cds:
+        # 노선 토폴로지 생성 중 문제 발생!!!
+
+        # 역 이름 -> 역 코드 매핑 테이블 생성
+        # 키: (역이름, 호선), 값: station_cd
+        name_line_to_cd = {}
+        for cd, info in stations_dict.items():
+            name_line_to_cd[(info["name"], info["line"])] = cd
+
+        # section data를 순회하며 정렬된 역 리스트 구축
+        sections = get_all_sections()
+        ordered_lines = {}  # { "1호선": ["0150", "0151", ...], ... }
+
+        for sec in sections:
+            line = sec["line"]
+            up_name = sec["up_station_name"]
+            down_name = sec["down_station_name"]
+
+            # 역 코드로 변환 (DB 데이터와 stations_dict 간 매칭)
+            up_cd = name_line_to_cd.get((up_name, line))
+            down_cd = name_line_to_cd.get((down_name, line))
+
+            # 데이터 정합성이 맞는 경우에만 처리
+            if up_cd and down_cd:
+                if line not in ordered_lines:
+                    ordered_lines[line] = []
+
+                # 리스트가 비어있으면 상행역부터 추가 (시작점)
+                if not ordered_lines[line]:
+                    ordered_lines[line].append(up_cd)
+                    ordered_lines[line].append(down_cd)
+                else:
+                    # 리스트의 마지막 역이 현재 섹션의 상행역과 같다면 하행역을 연결 (A->B, B->C)
+                    if ordered_lines[line][-1] == up_cd:
+                        ordered_lines[line].append(down_cd)
+                    else:
+                        # 끊긴 구간이거나 순서가 꼬인 경우 (드물지만 안전장치)
+                        # 단순 연결이 안 되면 건너뛰거나 별도 로직이 필요하나,
+                        # section_order가 보장되므로 여기서는 무시
+                        pass
+        logger.debug(f"정렬된 노선 데이터 구축 완료: {len(ordered_lines)}개 노선")
+
+        # 노선 토폴로지 로드 <- 슬라이싱 적용!!!
+
+        for line, station_cds in ordered_lines.items():
+            # 상행선
+            up_line = station_cds
+            # 하행선
+            down_line = list(reversed(station_cds))
+
+            for idx, station_cd in enumerate(station_cds):
                 key = (station_cd, line)
 
-                # sections에서 해당 역의 상하행 정보 찾기
-                # 실제 구현은 sections 데이터 구조에 따라 달라질 수 있음
-                # 여기서는 간단히 전체 노선 순서를 사용
+                # 현재 역 이후의!!! 역들만 잘라서 전달
+                # 무한 참조 방지!!!
+
+                # 상행 다음 역들: 내 위치 뒤!!!에 있는 모든 역 -> 나 자신을 제외!!!
+                next_up = up_line[idx + 1 :] if idx + 1 < len(up_line) else []
+
+                # 하행 다음 역들: 하행 리스트에서 내 위치 뒤에 있는 모든 역
+                try:
+                    d_idx = down_line.index(station_cd)
+                    next_down = (
+                        down_line[d_idx + 1 :] if d_idx + 1 < len(down_line) else []
+                    )
+                except ValueError:
+                    next_down = []
+
                 line_stations_dict[key] = {
-                    "up": station_cds,
-                    "down": list(reversed(station_cds)),
+                    "up": next_up,
+                    "down": next_down,
                 }
 
         logger.debug(
@@ -379,9 +436,7 @@ class PathfindingServiceCPP:
             routes_info = []
             for rank, (label, score) in enumerate(top_3_routes, start=1):
                 # C++ Label 객체에서 정보 추출
-                route_sequence = engine.reconstruct_route(
-                    label, self.data_container
-                )
+                route_sequence = engine.reconstruct_route(label, self.data_container)
                 route_lines = engine.reconstruct_lines(label)
 
                 # 환승 정보 추출 (Label 객체를 역추적하여 구성)
@@ -465,9 +520,7 @@ class PathfindingServiceCPP:
         """
         try:
             # 경로 및 노선 재구성
-            route_sequence = engine.reconstruct_route(
-                label, self.data_container
-            )
+            route_sequence = engine.reconstruct_route(label, self.data_container)
             route_lines = engine.reconstruct_lines(label)
 
             # 길이 검증: route_sequence와 route_lines의 길이가 일치해야 함
