@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+# NOTE: *.so는 제외하지만 Dockerfile에서 새로 빌드하므로 문제없음
 *.so
 .Python
 build/
@@ -26,8 +27,11 @@ venv/
 ENV/
 env/
 
-# Testing
+# Testing - 런타임에 불필요
 test/
+tests/
+transit-routing/test_*.py
+transit-routing/tests/
 .pytest_cache/
 .coverage
 htmlcov/
