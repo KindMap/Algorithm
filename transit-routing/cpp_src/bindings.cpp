@@ -58,7 +58,13 @@ PYBIND11_MODULE(pathfinding_cpp, m)
 
     py::class_<McRaptorEngine>(m, "McRaptorEngine")
         .def(py::init<const DataContainer &>())
-        .def("find_routes", &McRaptorEngine::find_routes)
+        .def("find_routes", &McRaptorEngine::find_routes,
+             py::call_guard<py::gil_scoped_release>(), // <-- C++ 연산 중 Python GIL 해제 => 멀티 스레드 가능
+             py::arg("origin_cd"),
+             py::arg("dest_cds"),
+             py::arg("departure_time"),
+             py::arg("disability_type"),
+             py::arg("max_rounds"))
         .def("rank_routes", &McRaptorEngine::rank_routes)
         .def("reconstruct_route", [](McRaptorEngine &self, const Label &l, const DataContainer &d)
              { return reconstruct_route_wrapper(self, l, d); })
