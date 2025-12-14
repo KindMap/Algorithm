@@ -137,12 +137,14 @@ namespace pathfinding
                     process_dir(next_stops.up, Direction::UP);
                     process_dir(next_stops.down, Direction::DOWN);
 
+                    // 수정!!!
                     // B. Transfer
                     auto lines = data_.get_lines(u);
                     for (const auto &next_line : lines)
                     {
                         if (next_line == L.current_line)
                             continue;
+
                         const TransferData *td = data_.get_transfer(u, L.current_line, next_line);
                         if (!td)
                             continue;
@@ -150,10 +152,18 @@ namespace pathfinding
                         double dist = td->distance;
                         double t_time = dist / (walk_speed * 60.0);
                         double station_score = data_.get_station_convenience(u, dtype);
-                        double new_conv_sum = L.convenience_sum + station_score; // 환승 시 점수 추가
+                        double new_conv_sum = L.convenience_sum + station_score;
                         double diff = PathfindingUtils::calculate_transfer_difficulty(dist, new_conv_sum, disability_type_str);
 
-                        LabelIndex new_idx = create_label(l_idx, u, next_line, Direction::UNKNOWN, L.transfers + 1,
+                        // 핵심 수정!!!
+                        // 환승 시 역 ID가 변경되어야 합니다 (u -> td->to_station_id)
+                        StationID next_station_id = td->to_station_id;
+
+                        LabelIndex new_idx = create_label(l_idx,
+                                                          next_station_id, // u 대신 환승 목적지 ID 사용
+                                                          next_line,
+                                                          Direction::UNKNOWN,
+                                                          L.transfers + 1,
                                                           L.arrival_time + t_time,
                                                           new_conv_sum,
                                                           L.congestion_sum,
@@ -161,8 +171,12 @@ namespace pathfinding
                                                           L.depth + 1, true, round);
 
                         bool dominated = false;
-                        for (LabelIndex ex : bags[u])
+
+                        // 핵심 수정!!!
+                        // "환승한 역(next_station_id)"의 가방(bags)을 검사해야 합니다.
+                        for (LabelIndex ex : bags[next_station_id]) // bags[u] 대신 bags[next_station_id]
                         {
+                            // 환승한 역에서는 노선이 next_line이어야 하므로 조건 일치
                             if (label_pool_[ex].current_line == next_line &&
                                 dominates(label_pool_[ex], label_pool_[new_idx], weights))
                             {
@@ -172,8 +186,8 @@ namespace pathfinding
                         }
                         if (!dominated)
                         {
-                            bags[u].push_back(new_idx);
-                            next_marked.insert(u);
+                            bags[next_station_id].push_back(new_idx); // bags[next_station_id]
+                            next_marked.insert(next_station_id);      // next_marked
                         }
                     }
                 }
