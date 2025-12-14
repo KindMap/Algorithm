@@ -45,7 +45,8 @@ class Settings:
     )
 
     # C++ 엔진 사용 여부
-    USE_CPP_ENGINE: bool = os.getenv("USE_CPP_ENGINE", "false").lower() == "true"
+    # USE_CPP_ENGINE: bool = os.getenv("USE_CPP_ENGINE", "false").lower() == "true"
+    USE_CPP_ENGINE = bool = False
 
     # 성능 모니터링 설정
     ENABLE_PERFORMANCE_MONITORING: bool = (
