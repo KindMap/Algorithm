@@ -188,6 +188,9 @@ namespace pathfinding
             {
                 transfers_[{from_sid, f_line, t_line}] = td;
                 linked_count++;
+
+                // 환승 가능 라인 기록
+                transfer_adjacency_[from_sid].push_back(t_line);
             }
         }
 

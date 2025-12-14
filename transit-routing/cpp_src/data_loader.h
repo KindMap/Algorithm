@@ -75,12 +75,22 @@ namespace pathfinding
 
         mutable std::shared_mutex update_mutex;
 
+        const std::vector<std::string> &get_transfer_lines(StationID id) const
+        {
+            static const std::vector<std::string> empty;
+            auto it = transfer_adjacency_.find(id);
+            return it != transfer_adjacency_.end() ? it->second : empty;
+        }
+
     private:
         std::unordered_map<std::string, StationID> code_to_id_;
         std::vector<std::string> id_to_code_;
 
         std::vector<StationInfo> stations_;
         std::vector<std::vector<std::string>> station_lines_;
+
+        // 역 ID 별 환승 가능한 노선 목록 stationId -> 2호선, ...
+        std::unordered_map<StationID, std::vector<std::string>> transfer_adjacency_;
 
         struct LineStationKey
         {

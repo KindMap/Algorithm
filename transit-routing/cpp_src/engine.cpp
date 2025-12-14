@@ -139,8 +139,10 @@ namespace pathfinding
 
                     // 수정!!!
                     // B. Transfer
-                    auto lines = data_.get_lines(u);
-                    for (const auto &next_line : lines)
+                    // auto lines = data_.get_lines(u);
+
+                    auto next_lines = data_.get_transfer_lines(u);
+                    for (const auto &next_line : next_lines)
                     {
                         if (next_line == L.current_line)
                             continue;
