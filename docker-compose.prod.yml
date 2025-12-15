@@ -37,7 +37,7 @@ services:
       REDIS_PUBSUB_CHANNEL: "kindmap_events"
       WHISPER_MODEL_DIR: "/root/.cache/huggingface"
       # C++ 엔진 활성화
-      USE_CPP_ENGINE: "true"
+      USE_CPP_ENGINE: "false"
     expose:
       - "8001"
     networks:
